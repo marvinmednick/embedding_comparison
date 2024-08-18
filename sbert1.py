@@ -1,46 +1,72 @@
 import time
 import argparse
+import csv
 import json
-start = time.process_time()
+import re
+cur = start = time.process_time()
 i = 0
 print(f"start {i} {time.process_time() - start}",flush=True)
 i = i + 1
+last = cur
 import chromadb
-print(f"chromadb {i} {time.process_time() - start}",flush=True)
+cur = time.process_time()
+print(f"chromadb {i} {cur - start:.3f}  {cur-last:.3f}",flush=True)
 i = i + 1
-import ollama
-print(f"ollama {i} {time.process_time() - start}",flush=True)
-i = i + 1
+# import ollama
+# last = cur
+# cur = time.process_time()
+# print(f"ollama {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
+# i = i + 1
 # from langchain_community.embeddings import OllamaEmbeddings
 from chromadb import Documents, EmbeddingFunction, Embeddings
-print(f"from chromadb {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"from chromadb {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 import nltk
-print(f"ntlk {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"ntlk {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from nltk.corpus import stopwords
-print(f"stopwords {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"stopwords {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from spacy.lang.en import English
-print(f"English {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"English {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from spacy.lang.en.stop_words import STOP_WORDS
-print(f"STOP_WORDS {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"STOP_WORDS {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 import spacy
-print(f"spacy {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"spacy {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from nltk.stem import PorterStemmer, WordNetLemmatizer
-print(f"nltk.stem {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"nltk.stem {i} {cur - start:.3f} {cur-last}",flush=True)
 i = i + 1
 from nltk.corpus import wordnet
-print(f"wordnet {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"wordnet {i:.3f} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from nltk.tokenize import word_tokenize
-print(f"tokenize {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"tokenize {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 from sentence_transformers import SentenceTransformer
-print(f"Sentance {i} {time.process_time() - start}",flush=True)
+last = cur
+cur = time.process_time()
+print(f"Sentance {i} {cur - start:.3f} {cur-last:.3f}",flush=True)
 i = i + 1
 
 # Download necessary resources
@@ -107,18 +133,43 @@ class TextPreprocessor():
         return processed_text
 
 
-def load_file_to_collection(filename, collection, id_key, doc_key, meta_config=None, maxrec=None):
-    print(f"Loading {filename}")
+def load_claims(filename,collection, maxrec=None):
+    pattern =  re.compile("(?P<country>[A-Z]{2})(?P<number>\d+)(?P<key>[AB][12]*)_(?P<claim>\d+)")
+
+    print(f"Loading patents from {filename}")
     with open(filename, 'r') as input_file:
         data = json.load(input_file)
         if maxrec is not None:
             data = data[:maxrec]
 
+    # remove the key code e.g. B2 from the claim_id
+    for r in data:
+        r['claim_id'] = re.sub(pattern, r"\g<country>\g<number>_\g<claim>", r['claim_id'])
+
+    load_data_to_collection(data,
+                    collection,
+                    'claim_id',
+                    'claim_text',
+                    meta_config=[{'patent_number': 'patent_number', 'claim_number': 'claim_number'}],
+                    maxrec=maxrec
+                    )
+
+def load_h264(filename,collection, maxrec=None):
+    print(f"Loading spec {filename}")
+    with open(filename, 'r') as input_file:
+        data = json.load(input_file)
+        if maxrec is not None:
+            data = data[:maxrec]
+
+    load_data_to_collection(data, collection, 'section_id', 'section_text', meta_config=[{'section_title': 'section_title'}], maxrec=maxrec)
+
+
+def load_data_to_collection(data, collection, id_key, doc_key, meta_config=None, maxrec=None):
     print(len(data), data[0].keys())
     data_keys = data[0].keys()
     if doc_key not in data_keys:
         raise Exception(f"Invalid doc key {doc_key}; key not found in filename")
-
+\
     if id_key not in data_keys:
         raise Exception(f"Invalid id key {id_key}; key not found in filename")
 
@@ -162,11 +213,14 @@ def main():
     #                help='Load data from a file into a collection')
     # parser.add_argument('collection', type=str, help='Name of the collection')
     # parser.add_argument('filename', type=str, help='Name of the file')
+    parser.add_argument('--delete', type=str, default=None, help='Delete specfied collection')
     parser.add_argument('--load', action='store_true', help='Flag to indicate if resources should be downloaded')
     parser.add_argument('--test', action='store_true', help='Flag to indicate test queries should be run')
     parser.add_argument('--temp', action='store_true', help='Flag to indicate to use temporary collection')
+    parser.add_argument('--list', action='store_true', help='List chromadb collections')
     parser.add_argument('--plook', action='store_true', help='Flag to indicate lookup document matches for claims')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
+    parser.add_argument('--results', type=int, default=5, help='Number of sections to return (default 5)')
 
     # Parse the arguments
     args = parser.parse_args()
@@ -193,23 +247,33 @@ def main():
     else:
         chroma_client = chromadb.PersistentClient(path="./chroma1.db")
 
+    if args.list:
+        colls = chroma_client.list_collections()
+        print(colls)
+
+    if args.delete:
+        try:
+            chroma_client.delete_collection(name=args.delete)
+            print(f"Deleted collecton {args.delete}")
+        except ValueError as e:
+            print(f"Could not delete {args.delete} ({e})")
+
+        exit(0)
+
     collections = {}
     # switch `create_collection` to `get_or_create_collection` to avoid creating a new collection every time
     collections['patents'] = chroma_client.get_or_create_collection(name="patents", embedding_function=custom_embedder, metadata={"hnsw:space": "cosine"})
     print(f"Patents currently includes {collections['patents'].count()} records")
     collections['h264spec'] = chroma_client.get_or_create_collection(name="h264_spec", embedding_function=custom_embedder, metadata={"hnsw:space": "cosine"})
-    print(f"H264spect currently includes {collections['h264spec'].count()} records")
+    h264spec_len = collections['h264spec'].count()
+    print(f"H264spect currently includes {h264spec_len} records")
+
+
 
     if args.load:
         print("Loading records")
-        load_file_to_collection("claims.json",
-                                collections['patents'],
-                                'claim_id',
-                                'claim_text',
-                                meta_config=[{'patent_number': 'patent_number', 'claim_number': 'claim_number'}],
-                                maxrec=args.maxrec
-                                )
-        load_file_to_collection("h264.json", collections['h264spec'], 'section_id', 'section_text', meta_config=[{'section_title': 'section_title'}], maxrec=args.maxrec)
+        load_claims("claims.json", collections['patents'], args.maxrec)
+        load_h264("h264.json", collections['h264spec'], args.maxrec)
 
     print("Added records (new)")
     # tp = TextPreprocessor()
@@ -218,12 +282,75 @@ def main():
 #    print(patents)
 
     if args.plook:
+        h264_sections = set(collections['h264spec'].get(include=[])['ids'])
         patents = collections['patents'].get(include=['embeddings'], limit=args.maxrec)
-        print(f"Number of patents {len(patents['ids'])}")
+        numpats = len(patents['ids'])
+        print(f"Length of h264 {collections['h264spec'].count()}")
+        print(f"Number of patents {numpats}")
+        if numpats < 20:
+            print(f"Patent List: {patents['ids']}")
 
-        patent_info = zip(patents['ids'],patents['embeddings'])
-        for (id, embed) in patent_info:
-            print(f"Processing {id} {embed[0:3]}...")
+        patent_info = list(zip(patents['ids'], patents['embeddings']))
+        patent_results = []
+        num_results = h264spec_len
+        if args.results < num_results:
+            num_results = args.results
+
+        key_sections = {}
+        with open("US_H264_patents.csv", "r", encoding='utf-8-sig') as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                print(f"Original Row {row}")
+                patent = row['patent'].replace(",", "")
+                claim_id = row['country'] + patent + "_" + row['claim']
+                section_list = [sec for sec in list(map(str.strip, row['sections'].split(","))) if sec in h264_sections]
+                # convert Ordered dict to dict
+                print(f"Claim {claim_id} adding {section_list}")
+                key_sections[claim_id] = list(section_list)
+
+        with open("US_H264_patents.json", "w") as outfile:
+            json.dump(key_sections, outfile, indent=6)
+
+        # query_embeddings = []
+        for (pid, embed) in patent_info:
+            print(f"Processing {pid} {embed[0:3]}...")
+            # query_embeddings.append(embed)
+            results = collections['h264spec'].query(
+                    query_embeddings=embed,
+                    n_results=num_results,
+                    include=['distances'])
+
+            # print(results)
+            combined_result = list(zip(results['ids'], results['distances']))
+            # print("Combined Result", combined_result)
+            # print("Combined Result by item:")
+            # for item in combined_result:
+            #     print("Item:", item)
+
+            # print(f"{'ID':>20}{'Distanace':>20}")
+            prec = {'claim_id': pid, 'result': [], 'key_sec_result': []}
+            if pid in key_sections:
+                patent_key_secs = key_sections[pid]
+            else:
+                patent_key_secs = []
+            patent_results.append(prec)
+            for (result_list, distance_list) in combined_result:
+                for idx, (result_id, distance) in enumerate(zip(result_list, distance_list)):
+                    # print(f"{result_id:<20}{distance:>20.8f}")
+
+                    dist_rec = {
+                       'rank' : idx,
+                       'section':  result_id,
+                       'distance': distance
+                    }
+                    prec['result'].append(dist_rec)
+                                         
+                    if result_id in patent_key_secs:
+                        prec['key_sec_result'].append(dist_rec)
+
+            # print("-"*40)
+        with open('plook.json', 'w') as output_file:
+            json.dump(patent_results, output_file, indent=6)
 
     if args.test:
         patents = collections['patents'].get(include=[], limit=2)
