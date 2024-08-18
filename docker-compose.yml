@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: ankane/pgvector  # This image includes PostgreSQL with the pgvector extension
+    container_name: postgres_pgvector
+    environment:
+      POSTGRES_USER: mmednick
+      POSTGRES_PASSWORD: 378abbey
+      POSTGRES_DB: embed
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+
+volumes:
+  pgdata:
+    driver: local
+
