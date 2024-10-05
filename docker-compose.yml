@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: ankane/pgvector  # This image includes PostgreSQL with the pgvector extension
@@ -9,11 +7,11 @@ services:
       POSTGRES_PASSWORD: 378abbey
       POSTGRES_DB: embed
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata1:/var/lib/postgresql/data
     ports:
       - "5434:5432"
 
 volumes:
-  pgdata:
+  pgdata1:
     driver: local
 
