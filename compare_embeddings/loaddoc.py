@@ -1,17 +1,19 @@
-import os 
+#!/usr/bin/env python
+
+import os
 import sys
 import re
-import django 
+import django
 import argparse
-import csv
 import json
-from django.utils import timezone
+# from django.utils import timezone
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Question, Document, DocSection, Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ModificationType
+from polls.models import Document, DocSection, Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ModificationType
 from polls.models import SectionForEmbedding
+
 
 def load_claims(filename, maxrec=None, related=False, key_related=False, update=False):
     # pattern =  re.compile("(?P<country>[A-Z]{2})(?P<number>\d+)(?P<key>[AB][12]*)_(?P<claim>\d+)")
@@ -192,11 +194,11 @@ def main():
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
     subparsers = parser.add_subparsers(dest='command', required=False)
 
-    parser_loaddoc = subparsers.add_parser('loaddoc', help='Load a document.')
+    parser_loaddoc = subparsers.add_parser('doc', help='Load a document.')
     parser_loaddoc.add_argument('filename', type=str, help='The name of the file to load.')
     parser_loaddoc.add_argument('docname', type=str, nargs='?', help='Optional document description for the database -- defaults to filename.')
 
-    parser_loadclaims = subparsers.add_parser('loadclaims', help='Load a document.')
+    parser_loadclaims = subparsers.add_parser('claims', help='Load a document.')
     parser_loadclaims.add_argument('filename', type=str, help='The name of the file to load.')
     parser_loadclaims.add_argument('--related',
                                    action='store_true',
@@ -237,7 +239,7 @@ def main():
         parser.print_help()
         sys.exit()
 
-    if args.command == 'loaddoc':
+    if args.command == 'doc':
         input_filename = args.filename
         document_name = args.docname if args.docname else args.filename  
 
@@ -245,9 +247,12 @@ def main():
 
         load_document(input_filename, document_name, args.maxrec, args.update)
 
-    if args.command == 'loadclaims':
+    elif args.command == 'claims':
         input_filename = args.filename
         load_claims(filename=input_filename, maxrec=args.maxrec,  related=args.related, key_related=args.key, update=args.update)
+
+    else:
+        print("Uknown sub command {args.command}")
 
 
 if __name__ == "__main__":

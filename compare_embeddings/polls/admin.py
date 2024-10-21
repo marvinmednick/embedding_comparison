@@ -2,8 +2,11 @@ from django.contrib import admin
 import logging
 import tiktoken
 
-from .models import Question, Choice, Embedding, ModificationType, EmbeddingType, Document, DocSection, SectionForEmbedding
-from .models import SectionEmbedding, Patent, PatentClaim, ClaimForEmbedding, ClaimEmbedding, Embedding768, Embedding32, ClaimElement
+from .models import Question, Choice
+from .models import Document, DocSection
+from .models import Patent, PatentClaim, ClaimForEmbedding, ClaimElement, ClaimRelatedSection
+from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32
+from .models import SectionEmbedding, SectionForEmbedding, ClaimEmbedding
 
 logger = logging.getLogger(__name__)
 logger.debug("Logger Test")
@@ -12,7 +15,6 @@ admin.site.register(Question)
 admin.site.register(Choice)
 admin.site.register(Embedding)
 admin.site.register(ModificationType)
-admin.site.register(SectionForEmbedding)
 admin.site.register(Patent)
 admin.site.register(ClaimForEmbedding)
 
@@ -20,6 +22,21 @@ admin.site.register(ClaimForEmbedding)
 class DocumentAdmin(admin.ModelAdmin):
     list_display = ['id', 'name']
     search_fields = ['id', 'name']
+
+
+class SectionForEmbeddingAdmin(admin.ModelAdmin):
+    list_display = ['id', 'section', 'modification_type', 'section__document']
+    # readonly_fields = ['section_id', 'mod_type']
+    search_fields = ['id', 'section__section_id', 'modification_type__name']
+    list_filter = ['modification_type', 'section__document']
+
+#     def section_id(self, obj):
+#         return obj.section.section_id
+# 
+#     def mod_type(self, obj):
+#         return obj.modification_type.name
+# 
+#     mod_type.short_description = 'Modification Type'
 
 
 class ClaimElementAdmin(admin.ModelAdmin):
@@ -108,6 +125,11 @@ class EmbeddingAdmin(admin.ModelAdmin):
     original_text.short_description = 'Source'
 
 
+class ClaimRelatedSectionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'claim__claim_id', 'related_sections']
+    search_fields = ['id', 'claim__claim_id']
+
+
 admin.site.register(Embedding32, EmbeddingAdmin)
 admin.site.register(Embedding768, EmbeddingAdmin)
 admin.site.register(EmbeddingType, EmbeddingTypeAdmin)
@@ -116,4 +138,5 @@ admin.site.register(SectionEmbedding, SectionEmbeddingAdmin)
 admin.site.register(DocSection, DocSectionAdmin)
 admin.site.register(ClaimElement, ClaimElementAdmin)
 admin.site.register(Document, DocumentAdmin)
-# admin.site.register(Embedding768)
+admin.site.register(SectionForEmbedding, SectionForEmbeddingAdmin)
+admin.site.register(ClaimRelatedSection, ClaimRelatedSectionAdmin)

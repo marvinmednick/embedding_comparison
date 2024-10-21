@@ -313,7 +313,7 @@ def main():
 
         # query_embeddings = []
         for (pid, embed) in patent_info:
-            print(f"Processing {pid} {embed[0:3]}...")
+            print(f"Processing {pid} {embed[0:3]}... Len: {len(embed)}")
             # query_embeddings.append(embed)
             results = collections['h264spec'].query(
                     query_embeddings=embed,

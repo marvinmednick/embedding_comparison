@@ -51,7 +51,7 @@ def embed_doc(embedder, modtype, maxrec=None):
                 'source_id': sec_embed_ref.source.id,
                 'orig_source_id': sec_embed_ref.source.section.id,
                 'embed_type_name': embedding_type.name,
-                'embed_type_short_name': embedding_type.short_name,
+                'embed_type_shortname': embedding_type.short_name,
                 'mod_type_name': sec_embed_ref.source.modification_type.name,
                 'embedding_vector': text_embedding,
             }

@@ -3,6 +3,7 @@ import sys
 import django
 import argparse
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
@@ -27,12 +28,17 @@ class SbertPatentEmbedding():
 
 def embed_doc(modtype, maxrec=None):
 
-    params = {
+    lookup_params = {
+        'name': "PATENT_SBERT",
+    }
+
+    defaults = {
         'name': "PATENT_SBERT",
         'size': 768,
+        'short_name': 'psbert',
         'description': "Sbert embedding that has been tuned for patents sentanceTransformer model AB1I-Growth-Lab/PatentSBERTa"
     }
-    embedding_type, _created = EmbeddingType.objects.get_or_create(**params)
+    embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
@@ -40,37 +46,40 @@ def embed_doc(modtype, maxrec=None):
     else:
         sections = SectionForEmbedding.objects.filter(modification_type=modification_type)
 
-    print(sections, type(sections))
-
     embedder = SbertPatentEmbedding()
 
     num_sections = sections.count()
-    for index, sec in enumerate(sections):
-        if index % 100 == 0:
-            print(f"Processing section {index}/{num_sections}")
-        sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
-        text_embedding = embedder.generate_embedding(sec.modified_text)
-        params = {
-            'embed_source': 'document',
-            'embed_id': sec_embed_ref.id,
-        }
-        defaults = {
-            'source_id': sec_embed_ref.source.id,
-            'orig_source_id': sec_embed_ref.source.section.id,
-            'embed_type_name': embedding_type.name,
-            'mod_type_name': sec_embed_ref.source.modification_type.name,
-            'embedding_vector': text_embedding,
-        }
-        Embedding768.objects.update_or_create(defaults=defaults, **params)
+    with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
+        for index, sec in enumerate(sections):
+            sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+            text_embedding = embedder.generate_embedding(sec.modified_text)
+            params = {
+                'embed_source': 'document',
+                'embed_id': sec_embed_ref.id,
+            }
+            defaults = {
+                'source_id': sec_embed_ref.source.id,
+                'orig_source_id': sec_embed_ref.source.section.id,
+                'embed_type_name': embedding_type.name,
+                'mod_type_name': sec_embed_ref.source.modification_type.name,
+                'embed_type_shortname': 'psbert',
+                'embedding_vector': text_embedding,
+            }
+            Embedding768.objects.update_or_create(defaults=defaults, **params)
+            pbar.update(1)
 
-    return
 
 
 def embed_patent_claims(modtype, maxrec=None):
 
     params = {
         'name': "PATENT_SBERT",
+    }
+
+    defaults = {
+        'name': "PATENT_SBERT",
         'size': 768,
+        'short_name': 'psbert',
         'description': "Sbert embedding that has been tuned for patents sentanceTransformer model AB1I-Growth-Lab/PatentSBERTa"
     }
     embedding_type, _created = EmbeddingType.objects.get_or_create(**params)
@@ -83,27 +92,25 @@ def embed_patent_claims(modtype, maxrec=None):
 
     embedder = SbertPatentEmbedding()
 
-
     num_claims = claims.count()
-    for index, claim in enumerate(claims):
-        if index % 100 == 0:
-            print(f"Processing claim {index}/{num_claims}")
-        claim_embed_ref, _created = ClaimEmbedding.objects.update_or_create(source=claim, embed_type=embedding_type)
-        text_embedding = embedder.generate_embedding(claim.modified_text)
-        params = {
-            'embed_source': 'claim',
-            'embed_id': claim_embed_ref.id,
-        }
-        defaults = {
-            'source_id': claim_embed_ref.source.id,
-            'orig_source_id': claim_embed_ref.source.claim.id,
-            'embed_type_name': embedding_type.name,
-            'mod_type_name': claim_embed_ref.source.modification_type.name,
-            'embedding_vector': text_embedding,
-        }
-        Embedding768.objects.update_or_create(defaults=defaults, **params)
-
-    return
+    with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
+        for index, claim in enumerate(claims):
+            claim_embed_ref, _created = ClaimEmbedding.objects.update_or_create(source=claim, embed_type=embedding_type)
+            text_embedding = embedder.generate_embedding(claim.modified_text)
+            params = {
+                'embed_source': 'claim',
+                'embed_id': claim_embed_ref.id,
+            }
+            defaults = {
+                'source_id': claim_embed_ref.source.id,
+                'orig_source_id': claim_embed_ref.source.claim.id,
+                'embed_type_name': embedding_type.name,
+                'mod_type_name': claim_embed_ref.source.modification_type.name,
+                'embed_type_shortname': 'psbert',
+                'embedding_vector': text_embedding,
+            }
+            Embedding768.objects.update_or_create(defaults=defaults, **params)
+            pbar.update(1)
 
 
 def main():
@@ -124,8 +131,6 @@ def main():
         parser.print_help()
         sys.exit()
 
-    print(f"Args: {args}")
-
     if args.content == 'claims':
         embed_patent_claims(args.modtype, args.maxrec)
     elif args.content == 'doc':
@@ -134,4 +139,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    print('exiting')

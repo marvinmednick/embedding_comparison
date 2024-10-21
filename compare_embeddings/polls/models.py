@@ -2,6 +2,8 @@ import datetime
 from django.db import models
 from django.utils import timezone
 from pgvector.django import VectorField
+from django.contrib.postgres.fields import ArrayField
+
 
 class Question(models.Model):
     question_text = models.CharField(max_length=200)
@@ -121,6 +123,13 @@ class ClaimElement(models.Model):
 
     def __str__(self):
         return f"{self.claim.claim_id} Element {self.element_number}"
+
+
+class ClaimRelatedSection(models.Model):
+    claim = models.ForeignKey(PatentClaim, on_delete=models.CASCADE)
+    related_sections = ArrayField(models.CharField(max_length=100))
+    related_tables = ArrayField(models.CharField(max_length=100))
+    related_figures = ArrayField(models.CharField(max_length=100))
 
 
 class ClaimForEmbedding(models.Model):
