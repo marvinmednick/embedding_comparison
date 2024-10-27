@@ -5,10 +5,12 @@ import sys
 import django
 import random
 import json
+import numpy as np
 from tqdm import tqdm
 from argparse import ArgumentParser, RawTextHelpFormatter
-from pgvector.django.functions import CosineDistance
+from pgvector.django.functions import CosineDistance, FloatField
 from django.db.models import F, Value, CharField, BooleanField, Q, Subquery, OuterRef, When, Case
+import ndcg
 
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
@@ -19,121 +21,208 @@ from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding768, Embedding32
 
 
-def compare_claim(claim_id, mod_type, embedding_type, section_list=None, maxrec=10):
-
-    patent_claim = PatentClaim.objects.get(claim_id=claim_id)
-    embed_type = EmbeddingType.objects.get(short_name=embedding_type)
-    mod_type = ModificationType.objects.get(name=mod_type).name
-
-    if embed_type.size == 768:
-        embedding_model = Embedding768
-
-    elif embed_type.size == 32:
-        embedding_model = Embedding32
-    else:
-        raise ValueError("Invalid embedding size: {embed_type.size}")
-
-    obj = embedding_model.objects.get(orig_source_id=patent_claim.id,
-                                      embed_source='claim',
-                                      mod_type_name=mod_type,
-                                      embed_type_name=embed_type.name)
-
-    # print(obj.mod_type_name, obj.embed_type_name)
-    claim_embedding_vector = obj.embedding_vector
-
-    # print(f"Vector is {embedding.embedding_vector[0:20]} Vector size {len(embedding.embedding_vector)}")
-
-    embedding_Q = Q(embed_source='document') & Q(mod_type_name=mod_type) & Q(embed_type_name=embed_type.name)
-
-    if section_list:
-        orig_source_id_list = DocSection.objects.filter(section_id__in=section_list).values_list('id', flat=True)
-        embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
-
-    document_embeddings = embedding_model.objects.filter(embedding_Q)
-
-    # print(f"Number of document embeddings {document_embeddings.count()}")
-
-    # for document in document_embeddings:
-    #     print(f"Document ID: {document.id}, {document.embed_source} Embed_id: {document.embed_id} Source id: {document.source_id} Orig {document.orig_source_id}")
-
-    related_sections = list(ClaimRelatedSection.objects.filter(claim__claim_id=claim_id).values_list('related_sections', flat=True).first() or [])
-
-    rankings = dict.fromkeys(related_sections, None)
+# Function to print all fields and their values for a given instance
+def print_all_fields(instance):
+    for field in instance._meta.get_fields():
+        # Check if the field is a regular field (not a related field)
+        if not field.is_relation:
+            field_name = field.name
+            field_value = getattr(instance, field_name, None)
+            print(f"{field_name}: {field_value}")
 
 
-
-    annotated_queryset = document_embeddings.annotate(
-        cosine_distance=CosineDistance(F('embedding_vector'), claim_embedding_vector),
-        claim_id=Value(claim_id, output_field=CharField()),
-        section_id=Subquery(DocSection.objects.filter(id=OuterRef('orig_source_id')).values('section_id')[:1]),
-        known_related_section=Case(When(section_id__in=related_sections, then=Value(True)),
-                                   default=Value(False),
-                                   output_field=BooleanField())
-    )
-
-    print(f"{'Rank':<7} {f'Embed {embed_type.size} ID':15} {'Section ID':15} {'Cosine Distance':20}{'Related':5}")
-
-    result = annotated_queryset.order_by('cosine_distance')
-    for rank, document in enumerate(result[0:maxrec], 1):
-        if document.known_related_section:
-            rankings[document.section_id] = rank
-        print(f"{rank:7} {document.id:<15} {document.section_id:<15} {document.cosine_distance:<20} {document.known_related_section}")
-
-    # Sort the items, putting None values at the end
-    ranking_info = sorted(rankings.items(), key=lambda x: (x[1] is None, x[1]))
-
-    # Print the sorted items
-    for key, value in ranking_info:
-        if value is None:
-            print(f"{key}: not found")
-        else:
-            print(f"{key}: {value}")
-
+def hellinger_distance(p, q):
+    # Ensure the vectors are numpy arrays
+#    print(f"P {p}")
+#    print(f"Q {q}")
+    p = np.array(p)
+    q = np.array(q)
+    
+    # Calculate the Hellinger distance
+    sqrt_p = np.sqrt(p)
+    sqrt_q = np.sqrt(q)
+#    print("SQRT P", sqrt_p, " SQRT Q2", sqrt_q)
+    calc1 = sqrt_p - sqrt_q
+    calc2 = calc1**2
+    sum2 = np.sum(calc2)
+#    print("P-Q: ", calc1)
+#    print("Calc2: ", calc2)
+#    print("sum2: ", sum2)
+    div2 = sum2 / 2
+    result = np.sqrt(div2)
+#    print("Div2: ", div2)
+#    print("result: ", result)
     return result
+    return np.sqrt(np.sum((np.sqrt(p) - np.sqrt(q))**2) / 2)
 
 
-#################################################################
-# Compare Range
+class ClaimComparison():
 
-def compare_range(start, stop, mod_type, embed_type, claim_top_k=10, overall_top_k=100):
-    print(f"Comparing patents with Id {start} to {stop}")
+    def __init__(self, modtype, embedding_type, section_list=None, maxrec=10, print_detail=False, related_claims=False):
+        self.section_list = section_list
+        self.maxrec = maxrec
+        self.mod_type = ModificationType.objects.get(name=modtype).name
+        self.embed_type = EmbeddingType.objects.get(short_name=embedding_type)
+        self.print_detail = print_detail
+        self.related_claims_only = related_claims
 
-    claims = PatentClaim.objects.filter(id__range=(start, stop))
-    combined_result = []
-    num_claims = len(claims)
-    with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
+    def compare_claim(self, claim_id):
 
-        for claim in claims:
-            # print(f"Checking Claim {claim.claim_id}")
-            result = compare_claim(claim, mod_type, embed_type)[0:claim_top_k]
-#         all_fields = result.first().__dict__
-# 
-#         for field, value in all_fields.items():
-#             if not field.startswith('_'):  # Exclude private fields
-#                 print(f"{field}: {value}")
-# 
-            combined_result.extend(result)
-            combined_result = sorted(combined_result, key=lambda x: x.cosine_distance)[0:overall_top_k]
-            # for i, r in enumerate(result):
-            #     print(i, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.cosine_distance)
-            pbar.update(1)
-    return combined_result
+        patent_claim = PatentClaim.objects.get(claim_id=claim_id)
+
+        if self.embed_type.size == 768:
+            embedding_model = Embedding768
+
+        elif self.embed_type.size == 32:
+            embedding_model = Embedding32
+        else:
+            raise ValueError("Invalid embedding size: {embed_type.size}")
+
+        obj = embedding_model.objects.get(orig_source_id=patent_claim.id,
+                                          embed_source='claim',
+                                          mod_type_name=self.mod_type,
+                                          embed_type_name=self.embed_type.name)
+
+        # print(obj.mod_type_name, obj.embed_type_name)
+        claim_embedding_vector = obj.embedding_vector
+
+        # print(f"Vector is {embedding.embedding_vector[0:20]} Vector size {len(embedding.embedding_vector)}")
+
+        embedding_Q = Q(embed_source='document') & Q(mod_type_name=self.mod_type) & Q(embed_type_name=self.embed_type.name)
+
+        if self.section_list:
+            orig_source_id_list = DocSection.objects.filter(section_id__in=self.section_list).values_list('id', flat=True)
+            embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
+
+        document_embeddings = embedding_model.objects.filter(embedding_Q)
+
+        # print(f"Number of document embeddings {document_embeddings.count()}")
+
+        # for document in document_embeddings:
+        #     print(f"Document ID: {document.id}, {document.embed_source} Embed_id: {document.embed_id} Source id: {document.source_id} Orig {document.orig_source_id}")
+
+        all_related_sections = list(ClaimRelatedSection.objects.filter(claim__claim_id=claim_id).values_list('related_sections', flat=True).first() or [])
+
+        # filter down related sections to only the ones we are looking at
+        related_sections = [x for x in all_related_sections if x in self.section_list]
+
+        empty_rec = {
+            'rank':  None,
+            'cosine_distance': None,
+            'distance':  None
+        }
+        rankings = dict.fromkeys(related_sections, empty_rec)
+
+        annotated_queryset = document_embeddings.annotate(
+            cosine_distance=CosineDistance(F('embedding_vector'), claim_embedding_vector),
+            distance=Value(0, FloatField()),
+            claim_id=Value(claim_id, output_field=CharField()),
+            section_id=Subquery(DocSection.objects.filter(id=OuterRef('orig_source_id')).values('section_id')[:1]),
+            known_related_section=Case(When(section_id__in=related_sections, then=Value(True)),
+                                       default=Value(False),
+                                       output_field=BooleanField())
+        )
+
+        # Annotate your queryset with the custom function result
+        for i, obj in enumerate(annotated_queryset):
+            # Use the custom function to compute the result
+            dist = hellinger_distance(obj.embedding_vector, claim_embedding_vector)
+            obj.distance = dist
+
+        result = sorted(list(annotated_queryset.values()), key=lambda x: x['distance'])
+
+        relevance_list = [1 if d['known_related_section'] else 0 for d in result if 'known_related_section' in d]
+
+        if self.print_detail:
+            print(f"{'Rank':<7} {f'Embed {self.embed_type.size} ID':15} {'Section ID':15} {'Cosine Distance':20} {'Distance':20} {'Related':5}")
+
+        for rank, document in enumerate(result[0:self.maxrec], 1):
+            if document['known_related_section']:
+                rankings[document['section_id']] = {
+                        'rank':  rank,
+                        'distance':  document['distance'],
+                        'cosine_distance':  document['cosine_distance']
+                    }
+            if self.print_detail:
+                print(f"{rank:7} {document['id']:<15} {document['section_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related_section']}")
+
+        if len(rankings) > 0:
+            print(f"Ranking for found related sections for {claim_id}")
+            # Sort the items, putting None values at the end
+            ranking_info = sorted(rankings.items(), key=lambda x: (x[1]['rank'] is None, x[1]['rank']))
+
+            # Print the sorted items
+            not_found = []
+            for key, value in ranking_info:
+                if value['rank'] is None:
+                    not_found.append(key)
+                    # print(f"{key:20}: not found", end="")
+                else:
+                    print(f"{key:20}: {value['rank']}  Distance: {value['distance']} Cosine Dist. {value['cosine_distance']}")
+
+            print(f"Not found: {', '.join(not_found)}")
+        else:
+            print(f"No related sections defined for {claim_id}  Closest item: {result[0].distance} {result[0].cosine_distance}")
+
+        print(f"NDCG {ndcg.calculate_ndcg_from_list(relevance_list)}")
+
+        return result
+
+    #################################################################
+    # Compare Range
+
+    def compare_range(self, start, stop, claim_top_k=10, overall_top_k=100):
 
 
-def compare_rand(num_claims, embed_type, mod_type="Unmodified", claim_top_k=10, overall_top_k=100):
-    queryset = list(PatentClaim.objects.all())
-    random_items = random.sample(queryset, num_claims)
-    combined_result = []
+        if self.related_claims_only:
+            claims_list = list(ClaimRelatedSection.objects.values_list('claim__claim_id', flat=True))
+            print(f"Comparing related patent claims  index {start} to {stop}")
+        else:
+            claims_list = list(PatentClaim.objects.values_list('claim_id', flat=True))
+            print(f"Comparing all claims  index {start} to {stop}")
 
-    with tqdm(total=len(random_items), desc="Processing Claims", unit="claim") as pbar:
-        for claim in random_items:
-            result = compare_claim(claim, mod_type, embed_type)[0:claim_top_k]
-            combined_result.extend(result)
-            combined_result = sorted(combined_result, key=lambda x: x.cosine_distance)[0:overall_top_k]
+        if start > len(claims_list):
+            print(f" !! can't process -- list only has {len(claims_list)} entries") 
+            return []
 
-            pbar.update(1)
+        if stop > len(claims_list):
+            stop = len(claims_list)
+            print(f" !! list only has {len(claims_list)} entries -- comparing from {start} to {stop}")
+            
+        claims = claims_list[start:stop]
+        combined_result = []
+        num_claims = len(claims)
+        with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
 
-    return combined_result
+            for claim in claims:
+                result = self.compare_claim(claim)[0:claim_top_k]
+                combined_result.extend(result)
+                combined_result = sorted(combined_result, key=lambda x: x.distance)[0:overall_top_k]
+                pbar.update(1)
+
+        return combined_result
+
+    ############################################
+    # Compare Rand -- radomly select a set of N claims to review
+
+    def compare_rand(self, num_claims, claim_top_k=10, overall_top_k=100):
+        if self.related_claims_only:
+            claims_list = list(ClaimRelatedSection.objects.values_list('claim__claim_id', flat=True))
+        else:
+            claims_list = list(PatentClaim.objects.values_list('claim_id', flat=True))
+
+        random_items = random.sample(claims_list, num_claims)
+        combined_result = []
+
+        with tqdm(total=len(random_items), desc="Processing Claims", unit="claim") as pbar:
+            for claim in random_items:
+                result = self.compare_claim(claim)[0:claim_top_k]
+                combined_result.extend(result)
+                combined_result = sorted(combined_result, key=lambda x: x.distance)[0:overall_top_k]
+
+                pbar.update(1)
+
+        return combined_result
 
 
 def comma_separated_list(arg):
@@ -183,27 +272,27 @@ def main():
         with open(args.sections, 'r') as f:
             section_list = json.load(f)
 
+    compare = ClaimComparison(section_list=section_list, maxrec=args.maxrec, modtype=args.modtype, embedding_type=args.embed_type)
+
     if args.claim:
-        result = compare_claim(args.claim, args.modtype, args.embed_type, section_list=section_list, maxrec=args.maxrec)
+        _ = compare.compare_claim(args.claim)
 
     if args.range:
-        result = compare_range(start=args.range[0], stop=args.range[1], mod_type=args.modtype, embed_type=args.embed_type, claim_top_k=args.claim_k,
-                               overall_top_k=args.all_k)
-        print("COMBINED")
-        for i, r in enumerate(result):
-            claim = PatentClaim.objects.get(claim_id=r.claim_id)
-            orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
-            print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.cosine_distance, claim.claim_id, claim.related_claim, orig_source)
+        _ = compare.compare_range(start=args.range[0], stop=args.range[1], claim_top_k=args.claim_k, overall_top_k=args.all_k)
+#         print("COMBINED")
+#         for i, r in enumerate(result):
+#             claim = PatentClaim.objects.get(claim_id=r.claim_id)
+#             orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
+#             print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.distance, claim.claim_id, claim.related_claim, orig_source)
 
     if args.rand:
-        print(f"Random {args.rand} {type(args.rand)}")
-        result = compare_rand(args.rand, embed_type=args.embed_type, mod_type=args.modtype, claim_top_k=args.claim_k, overall_top_k=args.all_k)
+        _ = compare.compare_rand(args.rand, claim_top_k=args.claim_k, overall_top_k=args.all_k)
 
-        print("RANDOM COMBINED")
-        for i, r in enumerate(result):
-            claim = PatentClaim.objects.get(claim_id=r.claim_id)
-            orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
-            print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.cosine_distance, claim.claim_id, claim.related_claim, orig_source)
+        # print("RANDOM COMBINED")
+        # for i, r in enumerate(result):
+        #     claim = PatentClaim.objects.get(claim_id=r.claim_id)
+        #     orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
+        #     print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.distance, claim.claim_id, claim.related_claim, orig_source)
 
 
 if __name__ == "__main__":

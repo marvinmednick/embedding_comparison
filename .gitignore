@@ -163,5 +163,5 @@ cython_debug/
 
 
 compare_embeddings/data/
-*venv/
+*venv
 saved_migrations/

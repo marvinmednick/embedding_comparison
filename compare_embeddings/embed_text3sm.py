@@ -2,12 +2,14 @@ import os
 import sys
 import django
 import argparse
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+import tiktoken
+from openai import AzureOpenAI
+from dotenv import load_dotenv
 from utils import create_size_buckets, increment_bucket
-import nltk
-from nltk.tokenize import sent_tokenize
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+load_dotenv()  # take environment variables from .env.
+
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
@@ -15,110 +17,58 @@ django.setup()
 from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
 from polls.models import DocSection, SectionForEmbedding, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
-from polls.models import Embedding768
+from polls.models import Embedding1536
 
+class OpenAIEmbedding():
 
-class SbertPatentEmbedding():
-    def __init__(self):
-        self.model = SentenceTransformer('AI-Growth-Lab/PatentSBERTa')
+    def __init__(self, model="text-embedding-3-small"):
+        self.client = AzureOpenAI(
+          api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+          api_version="2024-02-01",
+          azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+        )
+        self.model = model
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self.input_window_size = 8192
 
-    def __call__(self, input_docs) -> list[list[float]]:
-        embeddings = [self.generate_embedding(doc) for doc in input_docs]
-        return embeddings
-
-    def generate_embedding(self, document: str) -> list[float]:
-        return self.model.encode(document, cleaup_tokenization_spaces=False).tolist()
+    def generate_embedding(self, text): 
+        return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
+        token_length = len(self.tokenize(text))
+        if token_length <= self.input_window_size:
+            return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
+        else:
+            return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
+            num_chunks = token_length/8000   # less than 8192 so that there is some margin, since we are splitting the original text and not the
+            chars_per_chunk = len(text)/num_chunks
+            start = 0
+            end = chars_per_chunk
+            partial_embeddings = []
+            for idx in range(0, num_chunks):
+                p_embed = self.client.embeddings.create(input=[text[start:end]], model=self.model).data[0].embedding
+                partial_embeddings.append(p_embed)
+                end += chars_per_chunk
 
     def tokenize(self, document: str):
-        return self.model.tokenizer(document)
+        return self.tokenizer.encode(document)
 
     def get_embed_params(self):
         lookup_params = {
-            'name': "PATENT_SBERT",
+            'name': "OPENAI_TEXT3_SM",
         }
 
         defaults = {
-            'name': "PATENT_SBERT",
-            'size': 768,
-            'short_name': 'psbert',
-            'description': "Sbert embedding that has been tuned for patents sentanceTransformer model AB1I-Growth-Lab/PatentSBERTa"
+            'name': "OPENAI_TEXT3_SM",
+            'size': 1536,
+            'short_name': 'text3_small',
+            'description': "Open AI text-embedding-3-small model"
         }
-        model = Embedding768
+        model = Embedding1536
 
         return lookup_params, defaults, model
 
 
-def ensure_specific_nltk_resources():
-    """
-    Downloads specific NLTK resources if needed.
-    """
-    required_resources = [
-        'punkt',           # for sentence tokenization
-        'punkt_tab',           # for sentence tokenization
-        'averaged_perceptron_tagger',  # for POS tagging
-        # Add other required resources here
-    ]
-    
-    for resource in required_resources:
-        try:
-            nltk.data.find(f'tokenizers/{resource}')
-        except LookupError:
-            print(f"Downloading {resource}...")
-            nltk.download(resource)
-
-
-def hybrid_token_splitter(text, chunk_size_tokens=1500, chunk_overlap_tokens=20):
-    # Step 1: Split into sentences using NLTK
-    sentences = sent_tokenize(text)
-    
-    # Step 2: Join sentences with a special separator
-    sentence_separator = " <SENT> "
-    text_with_markers = sentence_separator.join(sentences)
-    
-    # Step 3: Create token-based splitter
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=chunk_size_tokens,
-        chunk_overlap=chunk_overlap_tokens,
-        separators=["\n\n", "\n", " <SENT> ", " "]
-    )
-    
-    # Step 4: Split into chunks
-    chunks = text_splitter.create_documents([text_with_markers])
-    
-    # Step 5: Clean up the chunks
-    cleaned_chunks = [
-        chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
-    ]
-    
-    return cleaned_chunks
-
-
-def token_doc(embedder, modtype, maxrec=None, token_check=False):
-
-    lookup_params, defaults, model = embedder.get_embed_params()
-
-    embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
-
-    modification_type = ModificationType.objects.get(name=modtype)
-    if maxrec is not None:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
-    else:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)
-
-#    num_sections = sections.count()
-#    with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
-    for index, sec in enumerate(sections):
-
-        chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=512, chunk_overlap_tokens=40)
-        if len(chunked_text) > 1:
-            print(f"\nSection {sec.section.section_id} {sec.modified_text[0:100]}")
-            for chunk in chunked_text:
-                print(f"-   {chunk}")
-
-
 def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
-    ensure_specific_nltk_resources()
     lookup_params, defaults, model = embedder.get_embed_params()
 
     embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
@@ -138,18 +88,18 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
     num_sections = sections.count()
     with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
         for index, sec in enumerate(sections):
-            tokens = embedder.tokenize(sec.modified_text)
-            token_length = len(tokens['input_ids'])
+            token_length = len(embedder.tokenize(sec.modified_text))
 
             tl_rec = {
                 'id': sec.id,
                 'section_id': sec.section.section_id,
                 'token_length': token_length,
-                'text_length': sec.modified_text
+                'text_length': len(sec.modified_text)
             }
             token_lengths.append(tl_rec)
 
             increment_bucket(size_buckets, token_length)
+
 
             if not token_check:
                 sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
@@ -171,7 +121,8 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
             pbar.update(1)
 
     for ln in token_lengths:
-        print(f"Section {ln['section_id']} ({ln['id']})   len: {ln['token_length']}")
+        if ln['token_length'] > 8192:
+            print(f"Section {ln['section_id']} ({ln['id']})   len: {ln['token_length']}")
 
     print("Token sizes by range:")
     for key in size_buckets['size_list']:
@@ -218,7 +169,7 @@ def main():
 
     # Create the argument parser
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
-    parser.add_argument('content', choices=['claims', 'doc', 'tokendoc'], help='The name of the file to load.')
+    parser.add_argument('content', choices=['claims', 'doc'], help='The name of the file to load.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
@@ -231,14 +182,12 @@ def main():
         parser.print_help()
         sys.exit()
 
-    embedder = SbertPatentEmbedding()
+    embedder = OpenAIEmbedding(model="text-embedding-3-small")
 
     if args.content == 'claims':
         embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
     elif args.content == 'doc':
         embed_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
-    elif args.content == 'tokendoc':
-        token_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
 
 
 if __name__ == "__main__":

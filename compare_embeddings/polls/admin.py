@@ -5,7 +5,7 @@ import tiktoken
 from .models import Question, Choice
 from .models import Document, DocSection
 from .models import Patent, PatentClaim, ClaimForEmbedding, ClaimElement, ClaimRelatedSection
-from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32
+from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
 from .models import SectionEmbedding, SectionForEmbedding, ClaimEmbedding
 
 logger = logging.getLogger(__name__)
@@ -132,6 +132,7 @@ class ClaimRelatedSectionAdmin(admin.ModelAdmin):
 
 admin.site.register(Embedding32, EmbeddingAdmin)
 admin.site.register(Embedding768, EmbeddingAdmin)
+admin.site.register(Embedding1536, EmbeddingAdmin)
 admin.site.register(EmbeddingType, EmbeddingTypeAdmin)
 admin.site.register(ClaimEmbedding, ClaimEmbeddingAdmin)
 admin.site.register(SectionEmbedding, SectionEmbeddingAdmin)

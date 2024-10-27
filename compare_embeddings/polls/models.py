@@ -160,6 +160,15 @@ class EmbeddingBaseModel(models.Model):
         abstract = True
 
 
+class Embedding1536(EmbeddingBaseModel):
+    embedding_vector = VectorField(
+        dimensions=1536,
+        help_text="1536 element Vector embedding",
+        null=True,
+        blank=True
+    )
+
+
 class Embedding768(EmbeddingBaseModel):
     embedding_vector = VectorField(
         dimensions=768,

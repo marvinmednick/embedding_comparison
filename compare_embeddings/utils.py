@@ -47,3 +47,22 @@ def shorten_text(astr, max_length):
         spoint = find_best_split_point(str_sample, reverse_splitters=True)
         return str_sample[:spoint]
 
+
+def create_size_buckets(sizes):
+
+    size_buckets = {size: 0 for size in sizes}
+    size_buckets['size_list'] = sizes
+    size_buckets['max'] = 0  # For sizes larger than the largest specified size
+    return size_buckets
+
+
+def increment_bucket(size_buckets, item_size):
+    for size in sorted(size_buckets['size_list']):
+        if item_size < size:
+            size_buckets[size] += 1
+            break
+    else:
+        size_buckets['max'] += 1
+    return size_buckets
+
+
