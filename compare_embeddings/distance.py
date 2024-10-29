@@ -39,7 +39,10 @@ def hellinger_distance(p, q):
     q = np.array(q)
     
     # Calculate the Hellinger distance
-    sqrt_p = np.sqrt(p)
+    try:
+        sqrt_p = np.sqrt(p)
+    except e as err:
+        print(f"Error {e} on sqrt of {p}")
     sqrt_q = np.sqrt(q)
 #    print("SQRT P", sqrt_p, " SQRT Q2", sqrt_q)
     calc1 = sqrt_p - sqrt_q
@@ -111,7 +114,8 @@ class ClaimComparison():
             'cosine_distance': None,
             'distance':  None
         }
-        rankings = dict.fromkeys(related_sections, empty_rec)
+        found_ranking = dict.fromkeys(related_sections, False) 
+        related_section_rankings = []
 
         annotated_queryset = document_embeddings.annotate(
             cosine_distance=CosineDistance(F('embedding_vector'), claim_embedding_vector),
@@ -129,7 +133,7 @@ class ClaimComparison():
             dist = hellinger_distance(obj.embedding_vector, claim_embedding_vector)
             obj.distance = dist
 
-        result = sorted(list(annotated_queryset.values()), key=lambda x: x['distance'])
+        result = sorted(list(annotated_queryset.values()), key=lambda x: x['cosine_distance'])
 
         relevance_list = [1 if d['known_related_section'] else 0 for d in result if 'known_related_section' in d]
 
@@ -137,30 +141,34 @@ class ClaimComparison():
             print(f"{'Rank':<7} {f'Embed {self.embed_type.size} ID':15} {'Section ID':15} {'Cosine Distance':20} {'Distance':20} {'Related':5}")
 
         for rank, document in enumerate(result[0:self.maxrec], 1):
+            chunk_info = f"{document['chunk_number']}/{document['total_chunks']}"
             if document['known_related_section']:
-                rankings[document['section_id']] = {
-                        'rank':  rank,
-                        'distance':  document['distance'],
-                        'cosine_distance':  document['cosine_distance']
-                    }
+                ranking_rec = {
+                    'section_id': document['section_id'],
+                    'rank':  rank,
+                    'distance':  document['distance'],
+                    'cosine_distance':  document['cosine_distance'],
+                    'id':  document['id'],
+                    'chunk_info':  chunk_info
+                }
+                related_section_rankings.append(ranking_rec)
+                found_ranking[document['section_id']] = True
             if self.print_detail:
-                print(f"{rank:7} {document['id']:<15} {document['section_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related_section']}")
+                print(f"{rank:7} {document['id']:<15} {document['section_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related_section']} {chunk_info}")
 
-        if len(rankings) > 0:
+        if len(related_section_rankings) > 0:
             print(f"Ranking for found related sections for {claim_id}")
-            # Sort the items, putting None values at the end
-            ranking_info = sorted(rankings.items(), key=lambda x: (x[1]['rank'] is None, x[1]['rank']))
+            for r in related_section_rankings:
+                print(f"{r['section_id']:<20} {r['rank']:<5} Cosine Dist. {r['cosine_distance']:<15.10} {r['id']} {r['chunk_info']}")
 
-            # Print the sorted items
-            not_found = []
-            for key, value in ranking_info:
-                if value['rank'] is None:
-                    not_found.append(key)
-                    # print(f"{key:20}: not found", end="")
-                else:
-                    print(f"{key:20}: {value['rank']}  Distance: {value['distance']} Cosine Dist. {value['cosine_distance']}")
+            sections_not_found = []
+            for key, value in found_ranking.items():
+                if not value:
+                    sections_not_found.append(key)
 
-            print(f"Not found: {', '.join(not_found)}")
+            if sections_not_found:
+                print(f"Not found: {', '.join(sections_not_found)}")
+
         else:
             print(f"No related sections defined for {claim_id}  Closest item: {result[0].distance} {result[0].cosine_distance}")
 
@@ -252,6 +260,7 @@ def main():
     parser.add_argument('--all_k', '-ak', type=int, default=100, help='maximum records to display')
     parser.add_argument('--sections', '-sec', type=str, help="Filename of json file with a list of sections to check")
     parser.add_argument('--docsecs', type=comma_separated_list, help="List of comma-separated section numbers")
+    parser.add_argument('--detail', action='store_true', help='Print details of claims comparisons')
 
     # parser.add_argument('--test', action='store_true', help='Flag to indicate test queries should be run')
     # parser.add_argument('--results', type=int, default=5, help='Number of sections to return (default 5)')jjjkk
@@ -259,7 +268,7 @@ def main():
     # Parse the arguments
     try:
         args = parser.parse_args()
-    except SystemExit:
+    except BaseException:
         # Display help if no command is provided or if there's an error
         parser.print_help()
         sys.exit()
@@ -272,7 +281,11 @@ def main():
         with open(args.sections, 'r') as f:
             section_list = json.load(f)
 
-    compare = ClaimComparison(section_list=section_list, maxrec=args.maxrec, modtype=args.modtype, embedding_type=args.embed_type)
+    compare = ClaimComparison(section_list=section_list,
+                              maxrec=args.maxrec,
+                              modtype=args.modtype,
+                              embedding_type=args.embed_type,
+                              print_detail=args.detail)
 
     if args.claim:
         _ = compare.compare_claim(args.claim)

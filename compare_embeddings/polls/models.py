@@ -48,6 +48,7 @@ class EmbeddingType(models.Model):
     short_name = models.CharField(max_length=20, null=True)
     description = models.TextField()
     size = models.IntegerField()
+    windows_size = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.short_name}: {self.name} ({self.pk})"
@@ -58,7 +59,7 @@ class Document(models.Model):
     filename = models.TextField(help_text="Name of Document")
 
     def __str__(self):
-        return f"{self.name} ({self.pk}"
+        return f"{self.name} ({self.pk})"
 
 
 class DocSection(models.Model):
@@ -72,19 +73,27 @@ class DocSection(models.Model):
         return f"{self.section_id} ({self.pk})"
 
 
-class SectionForEmbedding(models.Model):
+class ModifiedDocSection(models.Model):
     section = models.ForeignKey(DocSection, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
     openai_tokens = models.IntegerField(null=True)
-    
+
     def __str__(self):
         return f"{self.section.section_id} - {self.modification_type.name}  ({self.pk})"
 
 
 class SectionEmbedding(models.Model):
     embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE)
-    source = models.ForeignKey(SectionForEmbedding, on_delete=models.CASCADE)
+    source = models.ForeignKey(ModifiedDocSection, on_delete=models.CASCADE)
+    total_chunks = models.IntegerField(default=1)
+
+
+class ModifiedSectionChunk(models.Model):
+    section_embedding = models.ForeignKey(SectionEmbedding, on_delete=models.CASCADE)
+    modified_section = models.ForeignKey(ModifiedDocSection, on_delete=models.CASCADE)
+    chunk_number = models.IntegerField()
+    chunk_text = models.TextField()
 
 
 class Patent(models.Model):
@@ -149,12 +158,14 @@ class ClaimEmbedding(models.Model):
 
 class EmbeddingBaseModel(models.Model):
     embed_source = models.CharField(max_length=10, help_text="Indicates whether the embedding is for a claim or document")
-    embed_id = models.BigIntegerField(help_text="ID in the respective table for the claim/document Embedding")
-    source_id = models.BigIntegerField(help_text="ID to the document/claim xxForEmbedding) record that has text that used for embeddning")
-    orig_source_id = models.BigIntegerField(help_text="ID to the document/claim record that has the original source text in the documents (before any modifications)")
+    embed_id = models.BigIntegerField(help_text="ID in (Claim Embedding/Section Embeding) table that indicates the modified text and embedding type  ")
+    source_id = models.BigIntegerField(help_text="ID to the document/claim xxForEmbedding) record that text to be used for embeddning (after modificaitons, before chunking)")
+    orig_source_id = models.BigIntegerField(help_text="ID to the (doc/claim) record that has the original source text in the documents (before any modifications)")
     embed_type_name = models.CharField(max_length=200)
     mod_type_name = models.CharField(max_length=200)
     embed_type_shortname = models.CharField(max_length=20, null=True)
+    chunk_number = models.IntegerField(default=1)
+    total_chunks = models.IntegerField(default=1)
 
     class Meta:
         abstract = True

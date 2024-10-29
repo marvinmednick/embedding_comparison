@@ -15,7 +15,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
 from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
-from polls.models import DocSection, SectionForEmbedding, SectionEmbedding
+from polls.models import DocSection, ModifiedDocSection, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding1536
 
@@ -71,13 +71,15 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
     lookup_params, defaults, model = embedder.get_embed_params()
 
-    embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
+    embedding_type, created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
+    if created:
+        print(f"Created new Embedding Type {defaults['name']}")
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)
+        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
 
     token_lengths = []
 
@@ -86,6 +88,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
     size_buckets = create_size_buckets(specified_sizes)
 
     num_sections = sections.count()
+    created_count = 0
     with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
         for index, sec in enumerate(sections):
             token_length = len(embedder.tokenize(sec.modified_text))
@@ -100,9 +103,10 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
             increment_bucket(size_buckets, token_length)
 
-
             if not token_check:
-                sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+                sec_embed_ref, created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+                if created:
+                    created_count += 1
 
                 text_embedding = embedder.generate_embedding(sec.modified_text)
                 params = {
@@ -119,6 +123,8 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
                 }
                 model.objects.update_or_create(defaults=defaults, **params)
             pbar.update(1)
+
+    print(f"Created {created_count} new embeddings")
 
     for ln in token_lengths:
         if ln['token_length'] > 8192:

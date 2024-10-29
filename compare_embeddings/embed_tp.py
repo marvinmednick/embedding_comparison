@@ -10,7 +10,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
 from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
-from polls.models import DocSection, SectionForEmbedding, SectionEmbedding
+from polls.models import DocSection, ModifiedDocSection, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding32
 from utils import find_best_split_point, shorten_text
@@ -22,9 +22,9 @@ def embed_doc(embedder, modtype, maxrec=None):
     modification_type = ModificationType.objects.get(name=modtype)
 
     if maxrec is not None:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = SectionForEmbedding.objects.filter(modification_type=modification_type)
+        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
 
     lookup_params = {
         'name': f"TOPIC_MODEL_{embedder.domain.upper()} - {embedder.topic}",
@@ -131,7 +131,7 @@ def main():
     # for this selection even if max rec is set
     modification_type = ModificationType.objects.get(name=args.modtype)
     print("Gathering Sections")
-    sections = [sec.modified_text for sec in SectionForEmbedding.objects.filter(modification_type=modification_type)]
+    sections = [sec.modified_text for sec in ModifiedDocSection.objects.filter(modification_type=modification_type)]
     print("Creating Embbeder Model")
     embedder = TopicModelEmbedding(args.model, sections)
 

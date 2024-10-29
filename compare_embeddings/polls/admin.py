@@ -6,7 +6,7 @@ from .models import Question, Choice
 from .models import Document, DocSection
 from .models import Patent, PatentClaim, ClaimForEmbedding, ClaimElement, ClaimRelatedSection
 from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
-from .models import SectionEmbedding, SectionForEmbedding, ClaimEmbedding
+from .models import SectionEmbedding, ModifiedDocSection, ClaimEmbedding, ModifiedSectionChunk
 
 logger = logging.getLogger(__name__)
 logger.debug("Logger Test")
@@ -24,7 +24,7 @@ class DocumentAdmin(admin.ModelAdmin):
     search_fields = ['id', 'name']
 
 
-class SectionForEmbeddingAdmin(admin.ModelAdmin):
+class ModifiedDocSectionAdmin(admin.ModelAdmin):
     list_display = ['id', 'section', 'modification_type', 'section__document']
     # readonly_fields = ['section_id', 'mod_type']
     search_fields = ['id', 'section__section_id', 'modification_type__name']
@@ -37,6 +37,19 @@ class SectionForEmbeddingAdmin(admin.ModelAdmin):
 #         return obj.modification_type.name
 # 
 #     mod_type.short_description = 'Modification Type'
+
+
+class ModifiedSectionChunkAdmin(admin.ModelAdmin):
+   
+    list_display = ['id',  'mod_section_id', 'embed_type_name', 'chunk_number']
+    readonly_fields = ['mod_section_id', 'embed_type_name']
+    # search_fields = ['id', 'chunk_number']
+
+    def mod_section_id(self, obj):
+        return obj.modified_section_id
+
+    def embed_type_name(self, obj):
+        return obj.section_embedding.embed_type.name
 
 
 class ClaimElementAdmin(admin.ModelAdmin):
@@ -71,8 +84,8 @@ class ClaimEmbeddingAdmin(admin.ModelAdmin):
 
 
 class SectionEmbeddingAdmin(admin.ModelAdmin):
-    list_display = ['id', 'embed_type__short_name', 'source__section__section_id']
-    list_filter = ['embed_type__short_name']
+    list_display = ['id', 'embed_type__short_name', 'source__section__section_id', 'total_chunks']
+    list_filter = ['embed_type__short_name', 'total_chunks']
     search_fields = ['id', 'source__section__section_id']
 
 
@@ -91,7 +104,7 @@ class EmbeddingAdmin(admin.ModelAdmin):
 
     def modified_text(self, obj):
         if obj.embed_source == 'document':
-            mod_text = SectionForEmbedding.objects.get(pk=obj.source_id).modified_text
+            mod_text = ModifiedDocSection.objects.get(pk=obj.source_id).modified_text
         elif obj.embed_source == 'claim':
             mod_text = ClaimForEmbedding.objects.get(pk=obj.orig_source_id).modified_text
         else:
@@ -139,5 +152,6 @@ admin.site.register(SectionEmbedding, SectionEmbeddingAdmin)
 admin.site.register(DocSection, DocSectionAdmin)
 admin.site.register(ClaimElement, ClaimElementAdmin)
 admin.site.register(Document, DocumentAdmin)
-admin.site.register(SectionForEmbedding, SectionForEmbeddingAdmin)
+admin.site.register(ModifiedDocSection, ModifiedDocSectionAdmin)
 admin.site.register(ClaimRelatedSection, ClaimRelatedSectionAdmin)
+admin.site.register(ModifiedSectionChunk, ModifiedSectionChunkAdmin)
