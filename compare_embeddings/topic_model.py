@@ -2,7 +2,11 @@ from bigml.topicmodel import TopicModel
 import json
 import os
 import gzip
+from log_setup import get_logger
 from utils import shorten_text
+from polls.models import Embedding32
+
+logger = get_logger(__name__)
 
 MODEL_DIR = "./topic_models"
 MAX_STRING_LENGTH = 128000
@@ -38,8 +42,15 @@ TOP_LEVEL_SHORT_NAME = {
     "Video Compression": "vc",
     "Virtual Reality": "vr",
     "Wired Interconnect Technology": "wired_inet",
-    "Wireless Networking": "wirelese"
+    "Wireless Networking": "wireless"
 }
+
+
+def display_models():
+
+    print(f"{'Model Name':<50} {'Short Name':<20}")
+    for model, short_name in TOP_LEVEL_SHORT_NAME.items():
+        print(f"{model:<50} {short_name:<20}")
 
 
 def get_model_from_file(model_id):
@@ -53,6 +64,19 @@ def get_model_from_file(model_id):
     json_data = json.loads(file_content)
 
     return TopicModel(json_data)
+
+
+def get_full_model_name(model_name) -> str:
+    if not model_name:
+        return None
+
+    if model_name in TOP_LEVEL_SHORT_NAME:
+        return model_name
+    else:
+        for key, value in TOP_LEVEL_SHORT_NAME:
+            if model_name == value:
+                return key
+        return None
 
 
 def concatenate_sections(section_list):
@@ -75,10 +99,18 @@ class TopicModelEmbedding():
     def __init__(self, domain, document):
         self._domain = domain
         self.select_subtype_model(document)
+        logger.info("Using Topic Model %s.  Topic %s  short name %s  Model name: %s",
+                    self.domain,
+                    self._topic,
+                    self._topic_model_short_name,
+                    self._model_name)
 
     def generate_embedding(self, document: str) -> list[float]:
         result = self._model.distribution({"Text": document})
         return [x['probability'] for x in result]
+
+    def chunk(self, document):
+        return [document], 1
 
     def select_subtype_model(self, sections):
         domain_model_name = TOP_LEVEL_MODELS[self._domain]
@@ -93,7 +125,22 @@ class TopicModelEmbedding():
         self._model_name = SUBTOPIC_MODELS[self._domain][self._topic]
         self._model = get_model_from_file(self._model_name)
 
-        self._short_name = TOP_LEVEL_SHORT_NAME[self._domain]
+        self._model_short_name = TOP_LEVEL_SHORT_NAME[self._domain]
+        self._topic_model_short_name = f"tpm_{self._model_short_name}_{self._topic}"
+
+    def get_embed_params(self):
+        lookup_params = {
+            'name': f"TOPIC_MODEL_{self._domain.upper()} - {self._topic}",
+        }
+
+        defaults = {
+            'size': 32,
+            'short_name': self._topic_model_short_name,
+            'description': "Topic Model in the {self._domain.upper() and topic {self._topic}"
+        }
+        model = Embedding32
+
+        return lookup_params, defaults, model
 
     @property
     def topic(self):
@@ -105,7 +152,7 @@ class TopicModelEmbedding():
 
     @property
     def model_short_name(self):
-        return self._short_name
+        return self._model_short_name
 
     @property
     def domain(self):

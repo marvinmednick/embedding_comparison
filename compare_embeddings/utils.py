@@ -69,7 +69,23 @@ def increment_bucket(size_buckets, item_size):
     return size_buckets
 
 
+def check_nltk_resource(resource_name) -> bool:
+    """
+    Check to see if a resource had been downloaded into
+    any of the specified directories
+    """
+    directories = ['tokenizers', 'taggers', 'corpora']
+    for directory in directories:
+        try:
+            nltk.data.find(f'{directory}/{resource_name}')
+            return True
+        except LookupError:
+            continue
+    return False
+
+
 def ensure_specific_nltk_resources():
+
     """
     Downloads specific NLTK resources if needed.
     """
@@ -79,36 +95,61 @@ def ensure_specific_nltk_resources():
         'averaged_perceptron_tagger',  # for POS tagging
         # Add other required resources here
     ]
-    
+
     for resource in required_resources:
-        try:
-            nltk.data.find(f'tokenizers/{resource}')
-        except LookupError:
+        if not check_nltk_resource(resource):
             print(f"Downloading {resource}...")
             nltk.download(resource)
 
 
-def hybrid_token_splitter(text, chunk_size_tokens=1500, chunk_overlap_tokens=20):
+# def hybrid_token_splitter(text, chunk_size_tokens=1500, chunk_overlap_tokens=20):
+#     # Step 1: Split into sentences using NLTK
+#     sentences = sent_tokenize(text)
+# 
+#     # Step 2: Join sentences with a special separator
+#     sentence_separator = " <SENT> "
+#     text_with_markers = sentence_separator.join(sentences)
+# 
+#     # Step 3: Create token-based splitter
+#     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+#         chunk_size=chunk_size_tokens,
+#         chunk_overlap=chunk_overlap_tokens,
+#         separators=["\n\n", "\n", " <SENT> ", " "]
+#     )
+# 
+#     # Step 4: Split into chunks
+#     chunks = text_splitter.create_documents([text_with_markers])
+# 
+#     # Step 5: Clean up the chunks
+#     cleaned_chunks = [
+#         chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
+#     ]
+# 
+#     return cleaned_chunks
+
+
+def hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chunk_overlap_tokens=20):
     # Step 1: Split into sentences using NLTK
     sentences = sent_tokenize(text)
-    
+
     # Step 2: Join sentences with a special separator
     sentence_separator = " <SENT> "
     text_with_markers = sentence_separator.join(sentences)
-    
+
     # Step 3: Create token-based splitter
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size_tokens,
         chunk_overlap=chunk_overlap_tokens,
-        separators=["\n\n", "\n", " <SENT> ", " "]
+        separators=["\n\n", "\n", " <SENT> ", " "],
+        length_function=lambda x: len(tokenizer_func(x))
     )
-    
+
     # Step 4: Split into chunks
     chunks = text_splitter.create_documents([text_with_markers])
-    
+
     # Step 5: Clean up the chunks
     cleaned_chunks = [
         chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
     ]
-    
+
     return cleaned_chunks

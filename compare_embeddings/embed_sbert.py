@@ -6,7 +6,7 @@ import numpy as np
 import logging
 
 from tqdm import tqdm
-from utils import create_size_buckets, increment_bucket, hybrid_token_splitter, ensure_specific_nltk_resources
+from utils import create_size_buckets, increment_bucket #  , hybrid_token_splitter, ensure_specific_nltk_resources
 
 from log_setup import setup_logging, get_logger
 
@@ -15,6 +15,7 @@ django.setup()
 
 from sbert_embedding import SbertPatentEmbedding
 from openai_embedding import OpenAIEmbedding
+from topic_model import TopicModelEmbedding, display_models, get_full_model_name
 from polls.models import ClaimForEmbedding, ClaimEmbedding
 from polls.models import ModifiedDocSection, SectionEmbedding, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
@@ -49,8 +50,9 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
             existing_chunks = ModifiedSectionChunk.objects.filter(modified_section__id=sec.id)
             existing_chunks.delete()
 
-            chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=embedder.chunk_size, chunk_overlap_tokens=40)
-            total_chunks = len(chunked_text)
+            chunked_text, total_chunks = embedder.chunk(sec.modified_text)
+#            chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=embedder.chunk_size, chunk_overlap_tokens=40)
+#            total_chunks = len(chunked_text)
 
             lookup_params = {
                 'source': sec,
@@ -114,7 +116,7 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
 
 def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
-    ensure_specific_nltk_resources()
+    # ensure_specific_nltk_resources()
 
     lookup_params, defaults, model = embedder.get_embed_params()
 
@@ -211,17 +213,19 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
 
 def main():
 
-
     mod_types = ModificationType.objects.values_list('name', flat=True)
-    embed_types = ['sbert', 'openai' ]
+    embed_types = ['sbert', 'openai', 'topic']
 
     # Create the argument parser
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
-    parser.add_argument('content', choices=['claims', 'doc', 'docchunk'], help='The name of the file to load.')
+    parser.add_argument('content', choices=['claims', 'doc'], help='The name of the file to load.')
     parser.add_argument('embedtype', choices=embed_types, help='The type of embedding to use.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
+    parser.add_argument('--model', type=str, help='Top Level Topic Model to use')
+    parser.add_argument('--list_topic_models', action='store_true', help='Top Level Topic Model to use')
+
     parser.add_argument('--log-level', default=os.environ.get('LOG_LEVEL', 'INFO'),
                         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
@@ -234,6 +238,9 @@ def main():
         parser.print_help()
         sys.exit()
 
+    if args.list_topic_models:
+        display_models()
+
     log_level = args.log_level.upper()
     if logger:
         logger.setLevel(log_level)
@@ -244,14 +251,28 @@ def main():
         embedder = SbertPatentEmbedding()
     elif args.embedtype == 'openai':
         embedder = OpenAIEmbedding()
+    elif args.embedtype == 'topic':
+        model_name = get_full_model_name(args.model)
+        if not model_name:
+            print("topic embedding type requires a model to be set with --model")
+            parser.print_help()
+            sys.exit()
+
+        # topic model requires a document to setup the model (and in particular
+        # select a sub model based the entire document -- will use the entire document
+        # for this selection even if max rec is set
+        modification_type = ModificationType.objects.get(name=args.modtype)
+        print("Gathering Sections")
+        sections = [sec.modified_text for sec in ModifiedDocSection.objects.filter(modification_type=modification_type)]
+        print("Creating Embbeder Model")
+        embedder = TopicModelEmbedding(args.model, sections)
+
     else:
         print(f"Unknown embeddding type: {args.embed_type}")
 
     if args.content == 'claims':
         embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
     elif args.content == 'doc':
-        embed_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
-    elif args.content == 'docchunk':
         chunk_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
 
 
