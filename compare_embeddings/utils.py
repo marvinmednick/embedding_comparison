@@ -1,4 +1,7 @@
 import re
+import nltk
+from nltk.tokenize import sent_tokenize
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 SEARCH_AREA = 0.2
 SPLITTERS = [
@@ -66,3 +69,46 @@ def increment_bucket(size_buckets, item_size):
     return size_buckets
 
 
+def ensure_specific_nltk_resources():
+    """
+    Downloads specific NLTK resources if needed.
+    """
+    required_resources = [
+        'punkt',           # for sentence tokenization
+        'punkt_tab',           # for sentence tokenization
+        'averaged_perceptron_tagger',  # for POS tagging
+        # Add other required resources here
+    ]
+    
+    for resource in required_resources:
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            print(f"Downloading {resource}...")
+            nltk.download(resource)
+
+
+def hybrid_token_splitter(text, chunk_size_tokens=1500, chunk_overlap_tokens=20):
+    # Step 1: Split into sentences using NLTK
+    sentences = sent_tokenize(text)
+    
+    # Step 2: Join sentences with a special separator
+    sentence_separator = " <SENT> "
+    text_with_markers = sentence_separator.join(sentences)
+    
+    # Step 3: Create token-based splitter
+    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+        chunk_size=chunk_size_tokens,
+        chunk_overlap=chunk_overlap_tokens,
+        separators=["\n\n", "\n", " <SENT> ", " "]
+    )
+    
+    # Step 4: Split into chunks
+    chunks = text_splitter.create_documents([text_with_markers])
+    
+    # Step 5: Clean up the chunks
+    cleaned_chunks = [
+        chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
+    ]
+    
+    return cleaned_chunks

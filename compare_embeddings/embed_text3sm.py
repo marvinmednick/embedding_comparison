@@ -3,68 +3,15 @@ import sys
 import django
 import argparse
 from tqdm import tqdm
-import tiktoken
-from openai import AzureOpenAI
-from dotenv import load_dotenv
 from utils import create_size_buckets, increment_bucket
-
-load_dotenv()  # take environment variables from .env.
-
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
-from polls.models import DocSection, ModifiedDocSection, SectionEmbedding
+from openai_embedding import OpenAIEmbedding
+from polls.models import ClaimForEmbedding, ClaimEmbedding
+from polls.models import ModifiedDocSection, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
-from polls.models import Embedding1536
-
-class OpenAIEmbedding():
-
-    def __init__(self, model="text-embedding-3-small"):
-        self.client = AzureOpenAI(
-          api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-          api_version="2024-02-01",
-          azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-        )
-        self.model = model
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")
-        self.input_window_size = 8192
-
-    def generate_embedding(self, text): 
-        return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
-        token_length = len(self.tokenize(text))
-        if token_length <= self.input_window_size:
-            return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
-        else:
-            return self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
-            num_chunks = token_length/8000   # less than 8192 so that there is some margin, since we are splitting the original text and not the
-            chars_per_chunk = len(text)/num_chunks
-            start = 0
-            end = chars_per_chunk
-            partial_embeddings = []
-            for idx in range(0, num_chunks):
-                p_embed = self.client.embeddings.create(input=[text[start:end]], model=self.model).data[0].embedding
-                partial_embeddings.append(p_embed)
-                end += chars_per_chunk
-
-    def tokenize(self, document: str):
-        return self.tokenizer.encode(document)
-
-    def get_embed_params(self):
-        lookup_params = {
-            'name': "OPENAI_TEXT3_SM",
-        }
-
-        defaults = {
-            'name': "OPENAI_TEXT3_SM",
-            'size': 1536,
-            'short_name': 'text3_small',
-            'description': "Open AI text-embedding-3-small model"
-        }
-        model = Embedding1536
-
-        return lookup_params, defaults, model
 
 
 def embed_doc(embedder, modtype, maxrec=None, token_check=False):

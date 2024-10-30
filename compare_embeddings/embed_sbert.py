@@ -1,99 +1,27 @@
 import os
 import sys
-import django
 import argparse
+import django
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import time
+
 from tqdm import tqdm
-from utils import create_size_buckets, increment_bucket
-import nltk
-from nltk.tokenize import sent_tokenize
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from utils import create_size_buckets, increment_bucket, hybrid_token_splitter, ensure_specific_nltk_resources
+
+from log_setup import setup_logging, get_logger
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
-from polls.models import DocSection, ModifiedDocSection, SectionEmbedding, ModifiedSectionChunk
+from sbert_embedding import SbertPatentEmbedding
+from polls.models import ClaimForEmbedding, ClaimEmbedding
+from polls.models import ModifiedDocSection, SectionEmbedding, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
-from polls.models import Embedding768
 
+# setup logging for this file
+setup_logging()
 
-class SbertPatentEmbedding():
-    def __init__(self):
-        self.model_name = 'AI-Growth-Lab/PatentSBERTa'
-        self.model = SentenceTransformer(self.model_name)
-        print(f"Using {self.model_name}.  Window size is {self.model.max_seq_length}")
-
-    def __call__(self, input_docs) -> list[list[float]]:
-        embeddings = [self.generate_embedding(doc) for doc in input_docs]
-        return embeddings
-
-    def generate_embedding(self, document: str) -> list[float]:
-        return self.model.encode(document).tolist()
-
-    def tokenize(self, document: str):
-        return self.model.tokenizer(document)
-
-    def get_embed_params(self):
-        lookup_params = {
-            'name': "PATENT_SBERT",
-        }
-
-        defaults = {
-            'name': "PATENT_SBERT",
-            'size': 768,
-            'short_name': 'psbert',
-            'description': "Sbert embedding that has been tuned for patents sentanceTransformer model AB1I-Growth-Lab/PatentSBERTa"
-        }
-        model = Embedding768
-
-        return lookup_params, defaults, model
-
-
-def ensure_specific_nltk_resources():
-    """
-    Downloads specific NLTK resources if needed.
-    """
-    required_resources = [
-        'punkt',           # for sentence tokenization
-        'punkt_tab',           # for sentence tokenization
-        'averaged_perceptron_tagger',  # for POS tagging
-        # Add other required resources here
-    ]
-    
-    for resource in required_resources:
-        try:
-            nltk.data.find(f'tokenizers/{resource}')
-        except LookupError:
-            print(f"Downloading {resource}...")
-            nltk.download(resource)
-
-
-def hybrid_token_splitter(text, chunk_size_tokens=1500, chunk_overlap_tokens=20):
-    # Step 1: Split into sentences using NLTK
-    sentences = sent_tokenize(text)
-    
-    # Step 2: Join sentences with a special separator
-    sentence_separator = " <SENT> "
-    text_with_markers = sentence_separator.join(sentences)
-    
-    # Step 3: Create token-based splitter
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=chunk_size_tokens,
-        chunk_overlap=chunk_overlap_tokens,
-        separators=["\n\n", "\n", " <SENT> ", " "]
-    )
-    
-    # Step 4: Split into chunks
-    chunks = text_splitter.create_documents([text_with_markers])
-    
-    # Step 5: Clean up the chunks
-    cleaned_chunks = [
-        chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
-    ]
-    
-    return cleaned_chunks
+logger = get_logger(__name__)
 
 
 def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
@@ -120,7 +48,7 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
             existing_chunks = ModifiedSectionChunk.objects.filter(modified_section__id=sec.id)
             existing_chunks.delete()
 
-            chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=500, chunk_overlap_tokens=40)
+            chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=embedder.chunk_size, chunk_overlap_tokens=40)
             total_chunks = len(chunked_text)
 
             lookup_params = {
@@ -159,6 +87,7 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
                     ModifiedSectionChunk.objects.create(**chunk_info)
 
                 chunk_embedding = embedder.generate_embedding(chunk)
+                logger.debug("Embed chunk #:%d  %s", chunk_num, str(chunk_embedding[0:4]))
 
                 embed_record['chunk_number'] = chunk_num
                 embed_record['embedding_vector'] = chunk_embedding
@@ -281,6 +210,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
 
 def main():
 
+
     mod_types = ModificationType.objects.values_list('name', flat=True)
 
     # Create the argument parser
@@ -289,6 +219,9 @@ def main():
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
+    parser.add_argument('--log-level', default=os.environ.get('LOG_LEVEL', 'INFO'),
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level')
 
     # Parse the arguments
     try:
@@ -297,6 +230,10 @@ def main():
         # Display help if no command is provided or if there's an error
         parser.print_help()
         sys.exit()
+
+    log_level = args.log_level.upper()
+    if logger:
+        logger.setLevel(log_level)
 
     embedder = SbertPatentEmbedding()
 
