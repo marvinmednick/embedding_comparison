@@ -12,7 +12,7 @@ from pprint import pprint
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Document, DocSection, Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ModificationType, ClaimRelatedSection
+from polls.models import Document, Section, Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ModificationType, ClaimRelatedSection
 from polls.models import SectionForEmbedding
 
 

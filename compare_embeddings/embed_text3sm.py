@@ -9,8 +9,8 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
 from openai_embedding import OpenAIEmbedding
-from polls.models import ClaimForEmbedding, ClaimEmbedding
-from polls.models import ModifiedDocSection, SectionEmbedding
+from polls.models import ModifiedClaim, ClaimEmbedding
+from polls.models import ModifiedSection, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
 
 
@@ -24,9 +24,9 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)
 
     token_lengths = []
 
@@ -91,9 +91,9 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)
 
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:

@@ -62,7 +62,7 @@ class Document(models.Model):
         return f"{self.name} ({self.pk})"
 
 
-class DocSection(models.Model):
+class Section(models.Model):
     document = models.ForeignKey(Document, on_delete=models.CASCADE)
     section_id = models.CharField(max_length=100)
     section_title = models.TextField(default="")
@@ -73,8 +73,8 @@ class DocSection(models.Model):
         return f"{self.section_id} ({self.pk})"
 
 
-class ModifiedDocSection(models.Model):
-    section = models.ForeignKey(DocSection, on_delete=models.CASCADE)
+class ModifiedSection(models.Model):
+    section = models.ForeignKey(Section, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
     openai_tokens = models.IntegerField(null=True)
@@ -85,13 +85,13 @@ class ModifiedDocSection(models.Model):
 
 class SectionEmbedding(models.Model):
     embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE)
-    source = models.ForeignKey(ModifiedDocSection, on_delete=models.CASCADE)
+    source = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
     total_chunks = models.IntegerField(default=1)
 
 
 class ModifiedSectionChunk(models.Model):
     section_embedding = models.ForeignKey(SectionEmbedding, on_delete=models.CASCADE)
-    modified_section = models.ForeignKey(ModifiedDocSection, on_delete=models.CASCADE)
+    modified_section = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
     chunk_number = models.IntegerField()
     chunk_text = models.TextField()
 
@@ -141,7 +141,7 @@ class ClaimRelatedSection(models.Model):
     related_figures = ArrayField(models.CharField(max_length=100))
 
 
-class ClaimForEmbedding(models.Model):
+class ModifiedClaim(models.Model):
     claim = models.ForeignKey(PatentClaim, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
@@ -153,7 +153,7 @@ class ClaimForEmbedding(models.Model):
 
 class ClaimEmbedding(models.Model):
     embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE)
-    source = models.ForeignKey(ClaimForEmbedding, on_delete=models.CASCADE)
+    source = models.ForeignKey(ModifiedClaim, on_delete=models.CASCADE)
 
 
 class EmbeddingBaseModel(models.Model):

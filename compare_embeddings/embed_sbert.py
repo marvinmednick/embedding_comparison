@@ -16,8 +16,8 @@ django.setup()
 from sbert_embedding import SbertPatentEmbedding
 from openai_embedding import OpenAIEmbedding
 from topic_model import TopicModelEmbedding, display_models, get_full_model_name
-from polls.models import ClaimForEmbedding, ClaimEmbedding
-from polls.models import ModifiedDocSection, SectionEmbedding, ModifiedSectionChunk
+from polls.models import ModifiedClaim, ClaimEmbedding
+from polls.models import ModifiedSection, SectionEmbedding, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
 
 # setup logging for this file
@@ -34,9 +34,9 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)
 
     num_sections = sections.count()
     with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
@@ -124,9 +124,9 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)
 
     token_lengths = []
 
@@ -186,9 +186,9 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)
 
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
@@ -263,7 +263,7 @@ def main():
         # for this selection even if max rec is set
         modification_type = ModificationType.objects.get(name=args.modtype)
         print("Gathering Sections")
-        sections = [sec.modified_text for sec in ModifiedDocSection.objects.filter(modification_type=modification_type)]
+        sections = [sec.modified_text for sec in ModifiedSection.objects.filter(modification_type=modification_type)]
         print("Creating Embbeder Model")
         embedder = TopicModelEmbedding(args.model, sections)
 

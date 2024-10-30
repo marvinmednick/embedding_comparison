@@ -9,8 +9,8 @@ from topic_model import TopicModelEmbedding
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ClaimEmbedding
-from polls.models import DocSection, ModifiedDocSection, SectionEmbedding
+from polls.models import Patent, PatentClaim, ClaimElement, ModifiedClaim, ClaimEmbedding
+from polls.models import Section, ModifiedSection, SectionEmbedding
 from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding32
 from utils import find_best_split_point, shorten_text
@@ -22,9 +22,9 @@ def embed_doc(embedder, modtype, maxrec=None):
     modification_type = ModificationType.objects.get(name=modtype)
 
     if maxrec is not None:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)[0:maxrec]
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        sections = ModifiedDocSection.objects.filter(modification_type=modification_type)
+        sections = ModifiedSection.objects.filter(modification_type=modification_type)
 
     lookup_params = {
         'name': f"TOPIC_MODEL_{embedder.domain.upper()} - {embedder.topic}",
@@ -76,9 +76,9 @@ def embed_patent_claims(embedder, modtype, maxrec=None):
 
     modification_type = ModificationType.objects.get(name=modtype)
     if maxrec is not None:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)[0:maxrec]
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)[0:maxrec]
     else:
-        claims = ClaimForEmbedding.objects.filter(modification_type=modification_type)
+        claims = ModifiedClaim.objects.filter(modification_type=modification_type)
 
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
@@ -131,7 +131,7 @@ def main():
     # for this selection even if max rec is set
     modification_type = ModificationType.objects.get(name=args.modtype)
     print("Gathering Sections")
-    sections = [sec.modified_text for sec in ModifiedDocSection.objects.filter(modification_type=modification_type)]
+    sections = [sec.modified_text for sec in ModifiedSection.objects.filter(modification_type=modification_type)]
     print("Creating Embbeder Model")
     embedder = TopicModelEmbedding(args.model, sections)
 

@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Question, Document, DocSection, Patent, PatentClaim, ClaimElement
+from polls.models import Question, Document, Section, Patent, PatentClaim, ClaimElement
 
 
 def main():

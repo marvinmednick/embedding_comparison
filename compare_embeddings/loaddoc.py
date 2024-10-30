@@ -11,7 +11,7 @@ import json
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Document, DocSection, Patent, PatentClaim, ClaimElement, ClaimForEmbedding, ModificationType
+from polls.models import Document, Section, Patent, PatentClaim, ClaimElement, ModifiedClaim, ModificationType
 from polls.models import SectionForEmbedding
 
 
@@ -127,7 +127,7 @@ def load_claims(filename, maxrec=None, related=False, key_related=False, update=
                 'modification_type': std_modtype,
             }
             defaults = {'modified_text': claim.text}
-            _c_for_e, c_for_e_created = ClaimForEmbedding.objects.update_or_create(defaults=defaults, **lookup)
+            _c_for_e, c_for_e_created = ModifiedClaim.objects.update_or_create(defaults=defaults, **lookup)
 
     print(f"{'':>20}{'Patents':>20} {'Claims':>20} {'Elements':>20}")
     print(f"{'Created':>20} {patent_created_count:>20} {claim_created_count:>20} {element_created_count:>20}")
@@ -151,7 +151,7 @@ def load_document(filename, document_name=None, maxrec=None, update=False):
         if maxrec is not None:
             data = data[:maxrec]
 
-    existing_section_id = set(DocSection.objects.filter(document=document).values_list('section_id', flat=True))
+    existing_section_id = set(Section.objects.filter(document=document).values_list('section_id', flat=True))
 
     print("Adding {len(data)} records")
 
@@ -160,7 +160,7 @@ def load_document(filename, document_name=None, maxrec=None, update=False):
     for section in data:
 
         if section['section_id'] not in existing_section_id or update:
-            doc_section, created = DocSection.objects.update_or_create(
+            doc_section, created = Section.objects.update_or_create(
                 document=document, 
                 section_id=section['section_id'],
                 defaults={
@@ -176,10 +176,10 @@ def load_document(filename, document_name=None, maxrec=None, update=False):
                 print(f"section {section['section_id']} already exists...  skipping")
 
             # build up the standard modified data (i.e. unmodifed Records for embedding)
-            # This duplciates the text since the same text is in the original DocSection record,
+            # This duplciates the text since the same text is in the original Section record,
             # but this way embedding the text wihout any changes works the same as if there 
             # were changes.  (This could be changed later to have a special case in the code
-            # which knows about the unmodifed version and pulls the text from the DocSection record
+            # which knows about the unmodifed version and pulls the text from the Section record
             # instead.
             lookup = {
                     'section': doc_section,

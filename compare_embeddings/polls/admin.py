@@ -3,10 +3,10 @@ import logging
 import tiktoken
 
 from .models import Question, Choice
-from .models import Document, DocSection
-from .models import Patent, PatentClaim, ClaimForEmbedding, ClaimElement, ClaimRelatedSection
+from .models import Document, Section
+from .models import Patent, PatentClaim, ModifiedClaim, ClaimElement, ClaimRelatedSection
 from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
-from .models import SectionEmbedding, ModifiedDocSection, ClaimEmbedding, ModifiedSectionChunk
+from .models import SectionEmbedding, ModifiedSection, ClaimEmbedding, ModifiedSectionChunk
 
 logger = logging.getLogger(__name__)
 logger.debug("Logger Test")
@@ -16,7 +16,7 @@ admin.site.register(Choice)
 admin.site.register(Embedding)
 admin.site.register(ModificationType)
 admin.site.register(Patent)
-admin.site.register(ClaimForEmbedding)
+admin.site.register(ModifiedClaim)
 
 
 class DocumentAdmin(admin.ModelAdmin):
@@ -24,7 +24,7 @@ class DocumentAdmin(admin.ModelAdmin):
     search_fields = ['id', 'name']
 
 
-class ModifiedDocSectionAdmin(admin.ModelAdmin):
+class ModifiedSectionAdmin(admin.ModelAdmin):
     list_display = ['id', 'section', 'modification_type', 'section__document']
     # readonly_fields = ['section_id', 'mod_type']
     search_fields = ['id', 'section__section_id', 'modification_type__name']
@@ -57,7 +57,7 @@ class ClaimElementAdmin(admin.ModelAdmin):
     search_fields = ['id', 'claim_id']
 
 
-class DocSectionAdmin(admin.ModelAdmin):
+class SectionAdmin(admin.ModelAdmin):
     list_display = ['id', 'section_id', 'document_name']
     readonly_fields = ['document_id', 'document_name']
     search_fields = ['id', 'section_id']
@@ -104,9 +104,9 @@ class EmbeddingAdmin(admin.ModelAdmin):
 
     def modified_text(self, obj):
         if obj.embed_source == 'document':
-            mod_text = ModifiedDocSection.objects.get(pk=obj.source_id).modified_text
+            mod_text = ModifiedSection.objects.get(pk=obj.source_id).modified_text
         elif obj.embed_source == 'claim':
-            mod_text = ClaimForEmbedding.objects.get(pk=obj.orig_source_id).modified_text
+            mod_text = ModifiedClaim.objects.get(pk=obj.orig_source_id).modified_text
         else:
             mod_text = "<Not Available>"
 
@@ -114,7 +114,7 @@ class EmbeddingAdmin(admin.ModelAdmin):
 
     def original_text(self, obj):
         if obj.embed_source == 'document':
-            orig_text = DocSection.objects.get(pk=obj.orig_source_id).text
+            orig_text = Section.objects.get(pk=obj.orig_source_id).text
         elif obj.embed_source == 'claim':
             orig_text = PatentClaim.objects.get(pk=obj.orig_source_id).text
         else:
@@ -127,7 +127,7 @@ class EmbeddingAdmin(admin.ModelAdmin):
 
     def original_source(self, obj):
         if obj.embed_source == 'document':
-            orig_source = DocSection.objects.get(pk=obj.orig_source_id).section_id
+            orig_source = Section.objects.get(pk=obj.orig_source_id).section_id
         elif obj.embed_source == 'claim':
             orig_source = PatentClaim.objects.get(pk=obj.orig_source_id).claim_id
         else:
@@ -149,9 +149,9 @@ admin.site.register(Embedding1536, EmbeddingAdmin)
 admin.site.register(EmbeddingType, EmbeddingTypeAdmin)
 admin.site.register(ClaimEmbedding, ClaimEmbeddingAdmin)
 admin.site.register(SectionEmbedding, SectionEmbeddingAdmin)
-admin.site.register(DocSection, DocSectionAdmin)
+admin.site.register(Section, SectionAdmin)
 admin.site.register(ClaimElement, ClaimElementAdmin)
 admin.site.register(Document, DocumentAdmin)
-admin.site.register(ModifiedDocSection, ModifiedDocSectionAdmin)
+admin.site.register(ModifiedSection, ModifiedSectionAdmin)
 admin.site.register(ClaimRelatedSection, ClaimRelatedSectionAdmin)
 admin.site.register(ModifiedSectionChunk, ModifiedSectionChunkAdmin)

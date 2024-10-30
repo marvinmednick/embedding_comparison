@@ -7,7 +7,7 @@ import json
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import DocSection
+from polls.models import Section
 
 
 def custom_sort_key(section):
@@ -17,8 +17,8 @@ def custom_sort_key(section):
 
 def main():
 
-    section_list = DocSection.objects.filter(document__id=5).values_list('section_id', flat=True)
-    print(f"Found {len(section_list)} records in DocSections")
+    section_list = Section.objects.filter(document__id=5).values_list('section_id', flat=True)
+    print(f"Found {len(section_list)} records in Section")
 
     sorted_list = sorted(section_list, key=lambda x: custom_sort_key(x))
 

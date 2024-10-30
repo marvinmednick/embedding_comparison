@@ -16,7 +16,7 @@ import ndcg
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import DocSection, PatentClaim, ClaimRelatedSection
+from polls.models import Section, PatentClaim, ClaimRelatedSection
 from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding768, Embedding32
 
@@ -94,7 +94,7 @@ class ClaimComparison():
         embedding_Q = Q(embed_source='document') & Q(mod_type_name=self.mod_type) & Q(embed_type_name=self.embed_type.name)
 
         if self.section_list:
-            orig_source_id_list = DocSection.objects.filter(section_id__in=self.section_list).values_list('id', flat=True)
+            orig_source_id_list = Section.objects.filter(section_id__in=self.section_list).values_list('id', flat=True)
             embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
 
         document_embeddings = embedding_model.objects.filter(embedding_Q)
@@ -121,7 +121,7 @@ class ClaimComparison():
             cosine_distance=CosineDistance(F('embedding_vector'), claim_embedding_vector),
             distance=Value(0, FloatField()),
             claim_id=Value(claim_id, output_field=CharField()),
-            section_id=Subquery(DocSection.objects.filter(id=OuterRef('orig_source_id')).values('section_id')[:1]),
+            section_id=Subquery(Section.objects.filter(id=OuterRef('orig_source_id')).values('section_id')[:1]),
             known_related_section=Case(When(section_id__in=related_sections, then=Value(True)),
                                        default=Value(False),
                                        output_field=BooleanField())
@@ -295,7 +295,7 @@ def main():
 #         print("COMBINED")
 #         for i, r in enumerate(result):
 #             claim = PatentClaim.objects.get(claim_id=r.claim_id)
-#             orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
+#             orig_source = Section.objects.get(pk=r.orig_source_id).section_id
 #             print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.distance, claim.claim_id, claim.related_claim, orig_source)
 
     if args.rand:
@@ -304,7 +304,7 @@ def main():
         # print("RANDOM COMBINED")
         # for i, r in enumerate(result):
         #     claim = PatentClaim.objects.get(claim_id=r.claim_id)
-        #     orig_source = DocSection.objects.get(pk=r.orig_source_id).section_id
+        #     orig_source = Section.objects.get(pk=r.orig_source_id).section_id
         #     print(i, r.claim_id, r.id, r.embed_id, r.embed_source, r.orig_source_id, r.distance, claim.claim_id, claim.related_claim, orig_source)
 
 
