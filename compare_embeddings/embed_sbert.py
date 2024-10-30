@@ -3,7 +3,7 @@ import sys
 import argparse
 import django
 import numpy as np
-import time
+import logging
 
 from tqdm import tqdm
 from utils import create_size_buckets, increment_bucket, hybrid_token_splitter, ensure_specific_nltk_resources
@@ -14,6 +14,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
 from sbert_embedding import SbertPatentEmbedding
+from openai_embedding import OpenAIEmbedding
 from polls.models import ClaimForEmbedding, ClaimEmbedding
 from polls.models import ModifiedDocSection, SectionEmbedding, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
@@ -212,10 +213,12 @@ def main():
 
 
     mod_types = ModificationType.objects.values_list('name', flat=True)
+    embed_types = ['sbert', 'openai' ]
 
     # Create the argument parser
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
     parser.add_argument('content', choices=['claims', 'doc', 'docchunk'], help='The name of the file to load.')
+    parser.add_argument('embedtype', choices=embed_types, help='The type of embedding to use.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
@@ -235,7 +238,14 @@ def main():
     if logger:
         logger.setLevel(log_level)
 
-    embedder = SbertPatentEmbedding()
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+
+    if args.embedtype == 'sbert':
+        embedder = SbertPatentEmbedding()
+    elif args.embedtype == 'openai':
+        embedder = OpenAIEmbedding()
+    else:
+        print(f"Unknown embeddding type: {args.embed_type}")
 
     if args.content == 'claims':
         embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
