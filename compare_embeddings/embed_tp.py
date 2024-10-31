@@ -9,8 +9,8 @@ from topic_model import TopicModelEmbedding
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Patent, PatentClaim, ClaimElement, ModifiedClaim, ClaimEmbedding
-from polls.models import Section, ModifiedSection, SectionEmbedding
+from polls.models import Patent, PatentClaim, ClaimElement, ModifiedClaim, ClaimChunkInfo
+from polls.models import Section, ModifiedSection, SectionChunkInfo
 from polls.models import ModificationType, EmbeddingType
 from polls.models import Embedding32
 from utils import find_best_split_point, shorten_text
@@ -41,7 +41,7 @@ def embed_doc(embedder, modtype, maxrec=None):
     num_sections = sections.count()
     with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
         for index, sec in enumerate(sections):
-            sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+            sec_embed_ref, _created = SectionChunkInfo.objects.update_or_create(source=sec, embed_type=embedding_type)
             text_embedding = embedder.generate_embedding(sec.modified_text)
             params = {
                 'embed_source': 'document',
@@ -83,7 +83,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None):
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
         for index, claim in enumerate(claims):
-            claim_embed_ref, _created = ClaimEmbedding.objects.update_or_create(source=claim, embed_type=embedding_type)
+            claim_embed_ref, _created = ClaimChunkInfo.objects.update_or_create(source=claim, embed_type=embedding_type)
             #print(f"Processing {claim} - {claim_embed_ref.id} Created: {_created}")
             text_embedding = embedder.generate_embedding(claim.modified_text)
             params = {

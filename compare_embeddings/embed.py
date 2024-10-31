@@ -16,8 +16,8 @@ django.setup()
 from sbert_embedding import SbertPatentEmbedding
 from openai_embedding import OpenAIEmbedding
 from topic_model import TopicModelEmbedding, display_models, get_full_model_name
-from polls.models import ModifiedClaim, ClaimEmbedding
-from polls.models import ModifiedSection, SectionEmbedding, ModifiedSectionChunk
+from polls.models import ModifiedClaim, ClaimChunkInfo
+from polls.models import ModifiedSection, SectionChunkInfo, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
 
 # setup logging for this file
@@ -61,7 +61,7 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
             defaults = {
                 'total_chunks': total_chunks
             }
-            sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(**lookup_params, defaults=defaults)
+            sec_embed_ref, _created = SectionChunkInfo.objects.update_or_create(**lookup_params, defaults=defaults)
 
             chunk_embed_list = []
             embed_record = {
@@ -151,7 +151,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
             increment_bucket(size_buckets, token_length)
 
             if not token_check:
-                sec_embed_ref, _created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+                sec_embed_ref, _created = SectionChunkInfo.objects.update_or_create(source=sec, embed_type=embedding_type)
 
                 text_embedding = embedder.generate_embedding(sec.modified_text)
                 params = {
@@ -193,7 +193,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
         for index, claim in enumerate(claims):
-            claim_embed_ref, _created = ClaimEmbedding.objects.update_or_create(source=claim, embed_type=embedding_type)
+            claim_embed_ref, _created = ClaimChunkInfo.objects.update_or_create(source=claim, embed_type=embedding_type)
             text_embedding = embedder.generate_embedding(claim.modified_text)
             params = {
                 'embed_source': 'claim',

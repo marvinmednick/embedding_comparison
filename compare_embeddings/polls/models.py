@@ -77,20 +77,19 @@ class ModifiedSection(models.Model):
     section = models.ForeignKey(Section, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
-    openai_tokens = models.IntegerField(null=True)
 
     def __str__(self):
         return f"{self.section.section_id} - {self.modification_type.name}  ({self.pk})"
 
 
-class SectionEmbedding(models.Model):
+class SectionChunkInfo(models.Model):
     embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE)
     source = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
     total_chunks = models.IntegerField(default=1)
 
 
 class ModifiedSectionChunk(models.Model):
-    section_embedding = models.ForeignKey(SectionEmbedding, on_delete=models.CASCADE)
+    section_embedding = models.ForeignKey(SectionChunkInfo, on_delete=models.CASCADE)
     modified_section = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
     chunk_number = models.IntegerField()
     chunk_text = models.TextField()
@@ -151,9 +150,10 @@ class ModifiedClaim(models.Model):
         return f"{self.claim.claim_id}"
 
 
-class ClaimEmbedding(models.Model):
+class ClaimChunkInfo(models.Model):
     embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE)
     source = models.ForeignKey(ModifiedClaim, on_delete=models.CASCADE)
+    total_chunks = models.IntegerField(default=1)
 
 
 class EmbeddingBaseModel(models.Model):

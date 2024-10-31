@@ -6,7 +6,7 @@ from .models import Question, Choice
 from .models import Document, Section
 from .models import Patent, PatentClaim, ModifiedClaim, ClaimElement, ClaimRelatedSection
 from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
-from .models import SectionEmbedding, ModifiedSection, ClaimEmbedding, ModifiedSectionChunk
+from .models import SectionChunkInfo, ModifiedSection, ClaimChunkInfo, ModifiedSectionChunk
 
 logger = logging.getLogger(__name__)
 logger.debug("Logger Test")
@@ -77,13 +77,13 @@ class PatentClaimAdmin(admin.ModelAdmin):
     readonly_fields = ['id']
 
 
-class ClaimEmbeddingAdmin(admin.ModelAdmin):
+class ClaimChunkInfoAdmin(admin.ModelAdmin):
     list_display = ['id', 'embed_type__short_name', 'source__claim__claim_id']
     list_filter = ['embed_type__short_name']
     search_fields = ['id', 'source__claim__claim_id']
 
 
-class SectionEmbeddingAdmin(admin.ModelAdmin):
+class SectionChunkInfoAdmin(admin.ModelAdmin):
     list_display = ['id', 'embed_type__short_name', 'source__section__section_id', 'total_chunks']
     list_filter = ['embed_type__short_name', 'total_chunks']
     search_fields = ['id', 'source__section__section_id']
@@ -147,8 +147,8 @@ admin.site.register(Embedding32, EmbeddingAdmin)
 admin.site.register(Embedding768, EmbeddingAdmin)
 admin.site.register(Embedding1536, EmbeddingAdmin)
 admin.site.register(EmbeddingType, EmbeddingTypeAdmin)
-admin.site.register(ClaimEmbedding, ClaimEmbeddingAdmin)
-admin.site.register(SectionEmbedding, SectionEmbeddingAdmin)
+admin.site.register(ClaimChunkInfo, ClaimChunkInfoAdmin)
+admin.site.register(SectionChunkInfo, SectionChunkInfoAdmin)
 admin.site.register(Section, SectionAdmin)
 admin.site.register(ClaimElement, ClaimElementAdmin)
 admin.site.register(Document, DocumentAdmin)

@@ -9,8 +9,8 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
 from openai_embedding import OpenAIEmbedding
-from polls.models import ModifiedClaim, ClaimEmbedding
-from polls.models import ModifiedSection, SectionEmbedding
+from polls.models import ModifiedClaim, ClaimChunkInfo
+from polls.models import ModifiedSection, SectionChunkInfo
 from polls.models import ModificationType, EmbeddingType
 
 
@@ -51,7 +51,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
             increment_bucket(size_buckets, token_length)
 
             if not token_check:
-                sec_embed_ref, created = SectionEmbedding.objects.update_or_create(source=sec, embed_type=embedding_type)
+                sec_embed_ref, created = SectionChunkInfo.objects.update_or_create(source=sec, embed_type=embedding_type)
                 if created:
                     created_count += 1
 
@@ -98,7 +98,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
     num_claims = claims.count()
     with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
         for index, claim in enumerate(claims):
-            claim_embed_ref, _created = ClaimEmbedding.objects.update_or_create(source=claim, embed_type=embedding_type)
+            claim_embed_ref, _created = ClaimChunkInfo.objects.update_or_create(source=claim, embed_type=embedding_type)
             text_embedding = embedder.generate_embedding(claim.modified_text)
             params = {
                 'embed_source': 'claim',
