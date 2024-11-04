@@ -40,7 +40,6 @@ def test_chunk(request):
         for i, chunk in enumerate(chunks):
             print(f"    {i}:  {{\'chunk_len\': {len(chunk)}, \'chunk_tokens\': {len(embedder.tokenize(chunk))}}},")
         print("}")
-    
 
     chunk_info = {
         0:  {'chunk_len': 2658, 'chunk_tokens': 449},
