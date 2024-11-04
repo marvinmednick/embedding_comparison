@@ -36,7 +36,7 @@ class OpenAIEmbedding():
 
     def chunk(self, document) -> (list[str], int):
         chunked_text = hybrid_token_splitter(document,
-                                             self.tokenize,
+                                             self,
                                              chunk_size_tokens=self.chunk_size,
                                              chunk_overlap_tokens=self.overlap_size)
         return chunked_text, len(chunked_text)
