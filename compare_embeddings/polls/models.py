@@ -70,16 +70,16 @@ class Section(models.Model):
     text = models.TextField()
 
     def __str__(self):
-        return f"{self.section_id} ({self.pk})"
+        return f"{self.pk}"
 
 
 class ModifiedSection(models.Model):
-    section = models.ForeignKey(Section, on_delete=models.CASCADE)
+    item = models.ForeignKey(Section, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
 
     def __str__(self):
-        return f"{self.section.section_id} - {self.modification_type.name}  ({self.pk})"
+        return f"{self.item.section_id} - {self.modification_type.name}  ({self.pk})"
 
 
 class SectionChunkInfo(models.Model):
@@ -89,8 +89,8 @@ class SectionChunkInfo(models.Model):
 
 
 class ModifiedSectionChunk(models.Model):
-    section_embedding = models.ForeignKey(SectionChunkInfo, on_delete=models.CASCADE)
-    modified_section = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
+    chunk_info = models.ForeignKey(SectionChunkInfo, on_delete=models.CASCADE)
+    modified_item = models.ForeignKey(ModifiedSection, on_delete=models.CASCADE)
     chunk_number = models.IntegerField()
     chunk_text = models.TextField()
 
@@ -141,13 +141,12 @@ class ClaimRelatedSection(models.Model):
 
 
 class ModifiedClaim(models.Model):
-    claim = models.ForeignKey(PatentClaim, on_delete=models.CASCADE)
+    item = models.ForeignKey(PatentClaim, on_delete=models.CASCADE)
     modification_type = models.ForeignKey(ModificationType, on_delete=models.CASCADE)
     modified_text = models.TextField()
-    openai_tokens = models.IntegerField()
 
     def __str__(self):
-        return f"{self.claim.claim_id}"
+        return f"{self.item.claim_id}"
 
 
 class ClaimChunkInfo(models.Model):
@@ -156,9 +155,16 @@ class ClaimChunkInfo(models.Model):
     total_chunks = models.IntegerField(default=1)
 
 
+class ModifiedClaimChunk(models.Model):
+    chunk_info = models.ForeignKey(ClaimChunkInfo, on_delete=models.CASCADE)
+    modified_item = models.ForeignKey(ModifiedClaim, on_delete=models.CASCADE)
+    chunk_number = models.IntegerField()
+    chunk_text = models.TextField()
+
+
 class EmbeddingBaseModel(models.Model):
     embed_source = models.CharField(max_length=10, help_text="Indicates whether the embedding is for a claim or document")
-    embed_id = models.BigIntegerField(help_text="ID in (Claim Embedding/Section Embeding) table that indicates the modified text and embedding type  ")
+    chunk_info_id = models.BigIntegerField(help_text="ID in ChunkInfo table (Claim/Section ChunkInfo) that indicates the modified text and embedding type.")
     source_id = models.BigIntegerField(help_text="ID to the document/claim xxForEmbedding) record that text to be used for embeddning (after modificaitons, before chunking)")
     orig_source_id = models.BigIntegerField(help_text="ID to the (doc/claim) record that has the original source text in the documents (before any modifications)")
     embed_type_name = models.CharField(max_length=200)

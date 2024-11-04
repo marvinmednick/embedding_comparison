@@ -4,11 +4,12 @@ import argparse
 import django
 import numpy as np
 import logging
+from django.db.models import  Q
 
 from tqdm import tqdm
-from utils import create_size_buckets, increment_bucket #  , hybrid_token_splitter, ensure_specific_nltk_resources
+from utils import create_size_buckets, increment_bucket, comma_separated_list
 
-from log_setup import setup_logging, get_logger
+from log_setup import setup_logging, get_logger, switch_to_handler
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
@@ -16,7 +17,7 @@ django.setup()
 from sbert_embedding import SbertPatentEmbedding
 from openai_embedding import OpenAIEmbedding
 from topic_model import TopicModelEmbedding, display_models, get_full_model_name
-from polls.models import ModifiedClaim, ClaimChunkInfo
+from polls.models import ModifiedClaim, ClaimChunkInfo, ModifiedClaimChunk
 from polls.models import ModifiedSection, SectionChunkInfo, ModifiedSectionChunk
 from polls.models import ModificationType, EmbeddingType
 
@@ -26,71 +27,103 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
+def chunk_doc(embedder, doctype, modtype, maxrec=None, item_list=None, token_check=False):
+
+    doctype_config = {
+        'doc': {
+                'textObject':       ModifiedSection,
+                'chunkObject':      ModifiedSectionChunk,
+                'chunkInfoObject':  SectionChunkInfo,
+                'embed_source':     'document',
+                'status_desc':      'Section',
+                'status_unit':      'section'
+        },
+        'claim': {
+                'textObject':       ModifiedClaim,
+                'chunkObject':      ModifiedClaimChunk,
+                'chunkInfoObject':  ClaimChunkInfo,
+                'embed_source':     'claim',
+                'status_desc':      'Claim',
+                'status_unit':      'claim'
+        }
+    }
+
+    config = doctype_config[doctype]
 
     lookup_params, defaults, model = embedder.get_embed_params()
 
     embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
 
     modification_type = ModificationType.objects.get(name=modtype)
-    if maxrec is not None:
-        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
-    else:
-        sections = ModifiedSection.objects.filter(modification_type=modification_type)
 
-    num_sections = sections.count()
-    with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
-        for index, sec in enumerate(sections):
+    mod_items_Q = Q(modification_type=modification_type)
+
+    if item_list is not None:
+        mod_items_Q &= Q(pk__in=item_list)
+
+    items = config['textObject'].objects.filter(mod_items_Q)
+
+    if maxrec is not None:
+        items = items[0:maxrec]
+
+    num_items = items.count()
+    logger.debug("Processing %d %ss", num_items, config['status_desc'])
+    with tqdm(total=num_items, desc=f"Processing {config['status_desc']}", unit=config['status_unit']) as pbar:
+        for index, item in enumerate(items):
 
             # Delete Embeddings that are for modified_text entry and embedding type (?)
-            existing_embeddings = model.objects.filter(source_id=sec.id, embed_source='document')
+            existing_embeddings = model.objects.filter(source_id=item.id, embed_source='document')
             existing_embeddings.delete()
 
             # Delete ModifiedSectionChunk records for this modified section
-            existing_chunks = ModifiedSectionChunk.objects.filter(modified_section__id=sec.id)
+            existing_chunks = config['chunkObject'].objects.filter(modified_item__id=item.id)
             existing_chunks.delete()
 
-            chunked_text, total_chunks = embedder.chunk(sec.modified_text)
-#            chunked_text = hybrid_token_splitter(sec.modified_text, chunk_size_tokens=embedder.chunk_size, chunk_overlap_tokens=40)
-#            total_chunks = len(chunked_text)
+            chunked_text, total_chunks = embedder.chunk(item.modified_text)
 
             lookup_params = {
-                'source': sec,
+                'source': item,
                 'embed_type': embedding_type
             }
             defaults = {
                 'total_chunks': total_chunks
             }
-            sec_embed_ref, _created = SectionChunkInfo.objects.update_or_create(**lookup_params, defaults=defaults)
+            chunkInfoRef, _created = config['chunkInfoObject'].objects.update_or_create(**lookup_params, defaults=defaults)
 
             chunk_embed_list = []
             embed_record = {
-                'embed_source': 'document',
-                'embed_id': sec_embed_ref.id,
-                'source_id': sec_embed_ref.source.id,
-                'orig_source_id': sec_embed_ref.source.section.id,
+                'embed_source': config['embed_source'],
+                'embed_id': chunkInfoRef.id,
+                'source_id': chunkInfoRef.source.id,
+                'orig_source_id': chunkInfoRef.source.item.id,
                 'embed_type_name': embedding_type.name,
-                'mod_type_name': sec_embed_ref.source.modification_type.name,
+                'mod_type_name': chunkInfoRef.source.modification_type.name,
                 'embed_type_shortname': embedding_type.short_name,
                 'embedding_vector': None,
                 'chunk_number': None,
                 'total_chunks': total_chunks,
             }
+
+            if total_chunks > 1:
+                logger.debug("%s %s split into %d chunks", config['status_desc'], item.id, total_chunks)
             for chunk_num, chunk in enumerate(chunked_text, 1):
 
                 # if there is more than one chunk, then create separate chunk records
                 # otherwise the entire text is the chunk and the source text is the mod_text field in the modfiedsection record
                 if total_chunks > 1:
                     chunk_info = {
-                        'section_embedding': sec_embed_ref,
-                        'modified_section': sec,
+                        'chunk_info': chunkInfoRef,
+                        'modified_item': item,
                         'chunk_number': chunk_num,
                         'chunk_text': chunk
                     }
-                    ModifiedSectionChunk.objects.create(**chunk_info)
+                    config['chunkObject'].objects.create(**chunk_info)
 
                 chunk_embedding = embedder.generate_embedding(chunk)
-                logger.debug("Embed chunk #:%d  %s", chunk_num, str(chunk_embedding[0:4]))
+                if total_chunks > 1:
+                    logger.debug("Embed chunk #:%d  %s", chunk_num, str(chunk_embedding[0:6]))
+                else:
+                    logger.debug("%s %s single chunk - Embed:  %s", config['status_desc'], item.id,  str(chunk_embedding[0:6]))
 
                 embed_record['chunk_number'] = chunk_num
                 embed_record['embedding_vector'] = chunk_embedding
@@ -99,18 +132,15 @@ def chunk_doc(embedder, modtype, maxrec=None, token_check=False):
 
                 model.objects.create(**embed_record)
 
-            mean_embedding = np.mean([chunk_embedding for chunk_embedding in chunk_embed_list], axis=0)
-            full_text_embedding = embedder.generate_embedding(sec.modified_text)
+            # if there is more than one chunk for the text, 
+            # also create a mean (otherwise only one chunk, there is no need for the mean)
+            if total_chunks > 1:
+                mean_embedding = np.mean([chunk_embedding for chunk_embedding in chunk_embed_list], axis=0)
 
-            embed_record['chunk_number'] = 98
-            embed_record['embedding_vector'] = full_text_embedding
+                embed_record['chunk_number'] = 9999
+                embed_record['embedding_vector'] = mean_embedding
 
-            model.objects.create(**embed_record)
-
-            embed_record['chunk_number'] = 99
-            embed_record['embedding_vector'] = mean_embedding
-
-            model.objects.create(**embed_record)
+                model.objects.create(**embed_record)
             pbar.update(1)
 
 
@@ -142,7 +172,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
 
             tl_rec = {
                 'id': sec.id,
-                'section_id': sec.section.section_id,
+                'section_id': sec.item.section_id,
                 'token_length': token_length,
                 'text_length': sec.modified_text
             }
@@ -160,7 +190,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
                 }
                 defaults = {
                     'source_id': sec_embed_ref.source.id,
-                    'orig_source_id': sec_embed_ref.source.section.id,
+                    'orig_source_id': sec_embed_ref.source.item.id,
                     'embed_type_name': embedding_type.name,
                     'mod_type_name': sec_embed_ref.source.modification_type.name,
                     'embed_type_shortname': embedding_type.short_name,
@@ -201,7 +231,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
             }
             defaults = {
                 'source_id': claim_embed_ref.source.id,
-                'orig_source_id': claim_embed_ref.source.claim.id,
+                'orig_source_id': claim_embed_ref.source.item.id,
                 'embed_type_name': embedding_type.name,
                 'mod_type_name': claim_embed_ref.source.modification_type.name,
                 'embed_type_shortname': 'psbert',
@@ -209,6 +239,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
             }
             model.objects.update_or_create(defaults=defaults, **params)
             pbar.update(1)
+            logger.debug("Embed claim #:%d  %s", defaults['source_id'], str(text_embedding[0:6]))
 
 
 def main():
@@ -218,17 +249,18 @@ def main():
 
     # Create the argument parser
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
-    parser.add_argument('content', choices=['claims', 'doc'], help='The name of the file to load.')
+    parser.add_argument('content', choices=['claims', 'doc', 'olddoc'], help='The name of the file to load.')
     parser.add_argument('embedtype', choices=embed_types, help='The type of embedding to use.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
     parser.add_argument('--model', type=str, help='Top Level Topic Model to use')
     parser.add_argument('--list_topic_models', action='store_true', help='Top Level Topic Model to use')
-
+    parser.add_argument('--sections', type=comma_separated_list, help="List of comma-separated section numbers")
     parser.add_argument('--log-level', default=os.environ.get('LOG_LEVEL', 'INFO'),
                         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
+    parser.add_argument('--log-output', choices=['file','console'], help='Where to send log output to (default is file)')
 
     # Parse the arguments
     try:
@@ -240,6 +272,13 @@ def main():
 
     if args.list_topic_models:
         display_models()
+
+    section_list = None
+    if args.sections:
+        section_list = args.sections
+
+    if args.log_output:
+        switch_to_handler(args.log_output)
 
     log_level = args.log_level.upper()
     if logger:
@@ -271,9 +310,12 @@ def main():
         print(f"Unknown embeddding type: {args.embed_type}")
 
     if args.content == 'claims':
-        embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
+        # embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
+        chunk_doc(embedder, 'claim', args.modtype, args.maxrec, section_list, args.tokencheck)
     elif args.content == 'doc':
-        chunk_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
+        chunk_doc(embedder, 'doc', args.modtype, args.maxrec, section_list, args.tokencheck)
+    elif args.content == 'olddoc':
+        embed_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
 
 
 if __name__ == "__main__":

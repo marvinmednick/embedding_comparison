@@ -2,6 +2,8 @@ import re
 import nltk
 from nltk.tokenize import sent_tokenize
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from typing import List, Tuple
+
 
 SEARCH_AREA = 0.2
 SPLITTERS = [
@@ -128,7 +130,8 @@ def ensure_specific_nltk_resources():
 #     return cleaned_chunks
 
 
-def hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chunk_overlap_tokens=20):
+def old_hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chunk_overlap_tokens=20):
+    print("sentance")
     # Step 1: Split into sentences using NLTK
     sentences = sent_tokenize(text)
 
@@ -136,6 +139,7 @@ def hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chunk_ov
     sentence_separator = " <SENT> "
     text_with_markers = sentence_separator.join(sentences)
 
+    print("text splitter")
     # Step 3: Create token-based splitter
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size_tokens,
@@ -144,12 +148,68 @@ def hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chunk_ov
         length_function=lambda x: len(tokenizer_func(x))
     )
 
+    print("After RCTSplit")
     # Step 4: Split into chunks
     chunks = text_splitter.create_documents([text_with_markers])
+    print("After create documents")
 
     # Step 5: Clean up the chunks
     cleaned_chunks = [
         chunk.page_content.replace(" <SENT> ", " ") for chunk in chunks
     ]
 
+    print("hybrid return")
     return cleaned_chunks
+
+
+def hybrid_token_splitter(text: str, tokenizer, chunk_size_tokens: int = 460, chunk_overlap_tokens: int = 51) -> List[str]:
+    # Step 1: Split into sentences and tokenize
+    sentences = sent_tokenize(text)
+    tokenized_sentences: List[Tuple[str, List[str]]] = [
+        (sentence, tokenizer.tokenize(sentence)) for sentence in sentences
+    ]
+
+    # Step 2: Create chunks with overlap at the beginning
+    chunks: List[str] = []
+    current_chunk: List[Tuple[str, List[str]]] = []
+    current_chunk_tokens = 0
+
+    for sentence, tokens in tokenized_sentences:
+        token_count = len(tokens)
+        if current_chunk_tokens + token_count > chunk_size_tokens and current_chunk:
+            # Save current chunk
+            chunks.append(" ".join(sentence for sentence, _ in current_chunk))
+
+            # Prepare overlap for next chunk
+            overlap_chunk: List[Tuple[str, List[str]]] = []
+            overlap_tokens = 0
+            for s, t in reversed(current_chunk):
+                if overlap_tokens + len(t) <= chunk_overlap_tokens:
+                    overlap_chunk.insert(0, (s, t))
+                    overlap_tokens += len(t)
+                else:
+                    break
+
+            # Start new chunk with overlap
+            current_chunk = overlap_chunk
+            current_chunk_tokens = overlap_tokens
+
+        #   print(f"Overlap with {current_chunk_tokens}")
+        #   for i, chunk in enumerate(current_chunk):
+        #       print(f"Overlap {i} tklen: {len(chunk[1])}: {chunk[0]}")
+
+        current_chunk.append((sentence, tokens))
+        current_chunk_tokens += token_count
+        # print(f"Appending TkLen {len(tokens)} total: {current_chunk_tokens}: {sentence}")
+
+    if current_chunk:
+        chunks.append(" ".join(sentence for sentence, _ in current_chunk))
+        # for i, chunk in enumerate(current_chunk):
+        #     print(f"Final Chunk {i} tklen {len(chunk[1])}: {chunk[0]}")
+
+    return chunks
+
+
+def comma_separated_list(arg):
+    arglist = [item.strip() for item in arg.split(',')]
+    return arglist

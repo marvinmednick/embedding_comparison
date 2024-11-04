@@ -4,7 +4,7 @@ import tiktoken
 
 from .models import Question, Choice
 from .models import Document, Section
-from .models import Patent, PatentClaim, ModifiedClaim, ClaimElement, ClaimRelatedSection
+from .models import Patent, PatentClaim, ModifiedClaim, ClaimElement, ClaimRelatedSection, ModifiedClaimChunk
 from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
 from .models import SectionChunkInfo, ModifiedSection, ClaimChunkInfo, ModifiedSectionChunk
 
@@ -16,7 +16,7 @@ admin.site.register(Choice)
 admin.site.register(Embedding)
 admin.site.register(ModificationType)
 admin.site.register(Patent)
-admin.site.register(ModifiedClaim)
+admin.site.register(ModifiedClaimChunk)
 
 
 class DocumentAdmin(admin.ModelAdmin):
@@ -25,10 +25,13 @@ class DocumentAdmin(admin.ModelAdmin):
 
 
 class ModifiedSectionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'section', 'modification_type', 'section__document']
-    # readonly_fields = ['section_id', 'mod_type']
-    search_fields = ['id', 'section__section_id', 'modification_type__name']
-    list_filter = ['modification_type', 'section__document']
+    list_display = ['id', 'item', 'item_info', 'modification_type', 'item__document']
+    readonly_fields = ['item_info']
+    search_fields = ['id', 'modification_type__name']
+    list_filter = ['modification_type', 'item__document']
+
+    def item_info(self, obj):
+        return obj.item.section_id
 
 #     def section_id(self, obj):
 #         return obj.section.section_id
@@ -39,17 +42,21 @@ class ModifiedSectionAdmin(admin.ModelAdmin):
 #     mod_type.short_description = 'Modification Type'
 
 
+class ModifiedClaimAdmin(admin.ModelAdmin):
+    list_display = ['id', 'item', 'modification_type']
+
+
 class ModifiedSectionChunkAdmin(admin.ModelAdmin):
    
-    list_display = ['id',  'mod_section_id', 'embed_type_name', 'chunk_number']
-    readonly_fields = ['mod_section_id', 'embed_type_name']
+    list_display = ['id',  'mod_item_id', 'embed_type_name', 'chunk_number']
+    readonly_fields = ['mod_item_id', 'embed_type_name']
     # search_fields = ['id', 'chunk_number']
 
-    def mod_section_id(self, obj):
-        return obj.modified_section_id
+    def mod_item_id(self, obj):
+        return obj.modified_item_id
 
     def embed_type_name(self, obj):
-        return obj.section_embedding.embed_type.name
+        return obj.chunk_info.embed_type.name
 
 
 class ClaimElementAdmin(admin.ModelAdmin):
@@ -78,15 +85,15 @@ class PatentClaimAdmin(admin.ModelAdmin):
 
 
 class ClaimChunkInfoAdmin(admin.ModelAdmin):
-    list_display = ['id', 'embed_type__short_name', 'source__claim__claim_id']
+    list_display = ['id', 'embed_type__short_name', 'source__item__claim_id']
     list_filter = ['embed_type__short_name']
-    search_fields = ['id', 'source__claim__claim_id']
+    search_fields = ['id', 'source__item__claim_id']
 
 
 class SectionChunkInfoAdmin(admin.ModelAdmin):
-    list_display = ['id', 'embed_type__short_name', 'source__section__section_id', 'total_chunks']
+    list_display = ['id', 'embed_type__short_name', 'source__item__section_id', 'total_chunks']
     list_filter = ['embed_type__short_name', 'total_chunks']
-    search_fields = ['id', 'source__section__section_id']
+    search_fields = ['id', 'source__item__section_id']
 
 
 admin.site.register(PatentClaim, PatentClaimAdmin)
@@ -97,10 +104,10 @@ class EmbeddingTypeAdmin(admin.ModelAdmin):
 
 
 class EmbeddingAdmin(admin.ModelAdmin):
-    list_display = ["id", "embed_id", "embed_source", "embed_type_shortname", 'mod_type_name', 'original_source', 'orig_source_id', "short_orig_text"]
-    readonly_fields = ["id", "embed_id", "source_id", 'orig_source_id', 'original_text', 'modified_text', 'original_source']
+    list_display = ["id", "chunk_info_id", "embed_source", "embed_type_shortname", 'mod_type_name', 'original_source', 'orig_source_id', "short_orig_text"]
+    readonly_fields = ["id", "chunk_info_id", "source_id", 'orig_source_id', 'original_text', 'modified_text', 'original_source']
     list_filter = ['embed_type_shortname', 'embed_source', 'mod_type_name']
-    search_fields = ['id', 'embed_id', 'source_id', 'orig_source_id']
+    search_fields = ['id', 'chunk_info_id', 'source_id', 'orig_source_id']
 
     def modified_text(self, obj):
         if obj.embed_source == 'document':
@@ -155,3 +162,4 @@ admin.site.register(Document, DocumentAdmin)
 admin.site.register(ModifiedSection, ModifiedSectionAdmin)
 admin.site.register(ClaimRelatedSection, ClaimRelatedSectionAdmin)
 admin.site.register(ModifiedSectionChunk, ModifiedSectionChunkAdmin)
+admin.site.register(ModifiedClaim, ModifiedClaimAdmin)

@@ -11,6 +11,7 @@ from argparse import ArgumentParser, RawTextHelpFormatter
 from pgvector.django.functions import CosineDistance, FloatField
 from django.db.models import F, Value, CharField, BooleanField, Q, Subquery, OuterRef, When, Case
 import ndcg
+from utils import comma_separated_list
 
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
@@ -231,11 +232,6 @@ class ClaimComparison():
                 pbar.update(1)
 
         return combined_result
-
-
-def comma_separated_list(arg):
-    arglist =  [item.strip() for item in arg.split(',')]
-    return arglist
 
 
 def main():

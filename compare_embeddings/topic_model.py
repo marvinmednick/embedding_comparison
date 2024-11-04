@@ -73,7 +73,7 @@ def get_full_model_name(model_name) -> str:
     if model_name in TOP_LEVEL_SHORT_NAME:
         return model_name
     else:
-        for key, value in TOP_LEVEL_SHORT_NAME:
+        for key, value in TOP_LEVEL_SHORT_NAME.items():
             if model_name == value:
                 return key
         return None
