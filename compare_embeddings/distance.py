@@ -17,9 +17,9 @@ from utils import comma_separated_list
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
 
-from polls.models import Section, PatentClaim, ClaimRelatedSection
-from polls.models import ModificationType, EmbeddingType
-from polls.models import Embedding768, Embedding32
+from polls.models import Section, PatentClaim, ClaimRelatedSection   # noqa: E402
+from polls.models import ModificationType, EmbeddingType    # noqa: E402
+from polls.models import Embedding768, Embedding32, Embedding1536   # noqa: E402
 
 
 # Function to print all fields and their values for a given instance
@@ -33,17 +33,17 @@ def print_all_fields(instance):
 
 
 def hellinger_distance(p, q):
-    # Ensure the vectors are numpy arrays
-#    print(f"P {p}")
-#    print(f"Q {q}")
+    #   # Ensure the vectors are numpy arrays
+    #    print(f"P {p}")
+    #    print(f"Q {q}")
     p = np.array(p)
     q = np.array(q)
     
     # Calculate the Hellinger distance
     try:
         sqrt_p = np.sqrt(p)
-    except e as err:
-        print(f"Error {e} on sqrt of {p}")
+    except Exception as err:
+        print(f"Error {err} on sqrt of {p}")
     sqrt_q = np.sqrt(q)
 #    print("SQRT P", sqrt_p, " SQRT Q2", sqrt_q)
     calc1 = sqrt_p - sqrt_q
@@ -79,6 +79,8 @@ class ClaimComparison():
 
         elif self.embed_type.size == 32:
             embedding_model = Embedding32
+        elif self.embed_type.size == 1536:
+            embedding_model = Embedding1536
         else:
             raise ValueError("Invalid embedding size: {embed_type.size}")
 
@@ -265,8 +267,6 @@ def main():
     try:
         args = parser.parse_args()
     except BaseException:
-        # Display help if no command is provided or if there's an error
-        parser.print_help()
         sys.exit()
 
     section_list = None
