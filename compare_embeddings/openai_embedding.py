@@ -31,7 +31,7 @@ class OpenAIEmbedding():
         embedding = self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
         return embedding
 
-    def tokenize(self, document: str):
+    def tokenize(self, document: str, disable_warning=False):
         return self.tokenizer.encode(document)
 
     def chunk(self, document) -> (list[str], int):

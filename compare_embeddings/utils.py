@@ -3,6 +3,7 @@ import nltk
 from nltk.tokenize import sent_tokenize
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Tuple
+from log_setup import setup_logging, get_logger
 
 
 SEARCH_AREA = 0.2
@@ -22,6 +23,10 @@ SPLITTERS = [
     "\n",
     " ",
 ]
+
+setup_logging()
+
+logger = get_logger(__name__)
 
 
 def find_best_split_point(astr, reverse_splitters=False):
@@ -162,13 +167,51 @@ def old_hybrid_token_splitter(text, tokenizer_func, chunk_size_tokens=1500, chun
     return cleaned_chunks
 
 
+def split_oversized_sentence(tokenizer, sentence: str, tokens: List[str], max_tokens: int) -> List[Tuple[str, List[str]]]:
+    if len(tokens) <= max_tokens:
+        return [(sentence, tokens)]
+
+    # Recursive splitting
+    mid = len(sentence) // 2
+    left_sentence = sentence[:mid]
+    right_sentence = sentence[mid:]
+    left_tokens = tokenizer.tokenize(left_sentence)
+    right_tokens = tokenizer.tokenize(right_sentence)
+
+    result = split_oversized_sentence(tokenizer, left_sentence, left_tokens, max_tokens)
+
+    result.extend(split_oversized_sentence(tokenizer, right_sentence, right_tokens, max_tokens))
+
+    return result
+
+
 def hybrid_token_splitter(text: str, tokenizer, chunk_size_tokens: int = 460, chunk_overlap_tokens: int = 51) -> List[str]:
+
     # Step 1: Split into sentences and tokenize
     sentences = sent_tokenize(text)
-    tokenized_sentences: List[Tuple[str, List[str]]] = [
-        (sentence, tokenizer.tokenize(sentence)) for sentence in sentences
-    ]
+    logger.trace("After sent tokenizer, there are %d sentences", len(sentences))
+    for i, sent in enumerate(sentences):
+        logger.trace("SENTENCE %d START - Len %d", i, len(sent))
+        logger.trace(sent)
+        logger.trace("SENTENCE %d END", i)
+    tokenized_sentences: List[Tuple[str, List[str]]] = []
 
+    for sentence in sentences:
+        # at this point the size of the sentences aren't known and may be larger that limit (that is what
+        # the code is looking for) so disable any warnings  during this call
+        tokens = tokenizer.tokenize(sentence, disable_warning=True)
+
+        if len(tokens) > chunk_size_tokens:
+            logger.trace('Splitting sentance with %d tokens', len(tokens))
+            tokenized_sentences.extend(split_oversized_sentence(tokenizer, sentence, tokens, chunk_size_tokens/2))
+        else:
+            tokenized_sentences.append((sentence, tokens))
+
+    logger.trace("After check for large sentences there are  %d sentences", len(tokenized_sentences))
+    for i, sent in enumerate(tokenized_sentences):
+        logger.trace("TOKENIZED SENTENCE %d START - Len %d token len %d ", i, len(sent[0]), len(sent[1]))
+        logger.trace(sent[0])
+        logger.trace("TOKENIZED SENTENCE %d END", i)
     # Step 2: Create chunks with overlap at the beginning
     chunks: List[str] = []
     current_chunk: List[Tuple[str, List[str]]] = []
@@ -194,18 +237,21 @@ def hybrid_token_splitter(text: str, tokenizer, chunk_size_tokens: int = 460, ch
             current_chunk = overlap_chunk
             current_chunk_tokens = overlap_tokens
 
-        #   print(f"Overlap with {current_chunk_tokens}")
-        #   for i, chunk in enumerate(current_chunk):
-        #       print(f"Overlap {i} tklen: {len(chunk[1])}: {chunk[0]}")
+        logger.trace("Overlap with %d", current_chunk_tokens)
+        for i, chunk in enumerate(current_chunk):
+            logger.trace("Overlap %d tklen: %d: %s", i, len(chunk[1]), chunk[0])
+            for i, chunk in enumerate(current_chunk):
+                logger.trace("Overlap %d tklen: %d: %s", i, len(chunk[1]), chunk[0])
 
         current_chunk.append((sentence, tokens))
         current_chunk_tokens += token_count
+        logger.trace("Appending TkLen %d total: %d: %s", len(tokens), current_chunk_tokens, sentence)
         # print(f"Appending TkLen {len(tokens)} total: {current_chunk_tokens}: {sentence}")
 
     if current_chunk:
         chunks.append(" ".join(sentence for sentence, _ in current_chunk))
-        # for i, chunk in enumerate(current_chunk):
-        #     print(f"Final Chunk {i} tklen {len(chunk[1])}: {chunk[0]}")
+        for i, chunk in enumerate(current_chunk):
+            logger.trace("Final Chunk %d tklen %d : %s", i, len(chunk[1]),  chunk[0])
 
     return chunks
 

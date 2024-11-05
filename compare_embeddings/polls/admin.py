@@ -16,7 +16,6 @@ admin.site.register(Choice)
 admin.site.register(Embedding)
 admin.site.register(ModificationType)
 admin.site.register(Patent)
-admin.site.register(ModifiedClaimChunk)
 
 
 class DocumentAdmin(admin.ModelAdmin):
@@ -59,6 +58,11 @@ class ModifiedSectionChunkAdmin(admin.ModelAdmin):
         return obj.chunk_info.embed_type.name
 
 
+class ModifiedClaimChunkAdmin(admin.ModelAdmin):
+    list_display = ['id', 'modified_item', 'chunk_number']
+    search_fields = ['id', 'modified_item__id']
+
+
 class ClaimElementAdmin(admin.ModelAdmin):
     list_display = ['id', 'claim_id', 'element_number', 'text']
     search_fields = ['id', 'claim_id']
@@ -85,8 +89,8 @@ class PatentClaimAdmin(admin.ModelAdmin):
 
 
 class ClaimChunkInfoAdmin(admin.ModelAdmin):
-    list_display = ['id', 'embed_type__short_name', 'source__item__claim_id']
-    list_filter = ['embed_type__short_name']
+    list_display = ['id', 'embed_type__short_name', 'source__item__claim_id', 'total_chunks']
+    list_filter = ['embed_type__short_name', 'total_chunks']
     search_fields = ['id', 'source__item__claim_id']
 
 
@@ -104,10 +108,27 @@ class EmbeddingTypeAdmin(admin.ModelAdmin):
 
 
 class EmbeddingAdmin(admin.ModelAdmin):
-    list_display = ["id", "chunk_info_id", "embed_source", "embed_type_shortname", 'mod_type_name', 'original_source', 'orig_source_id', "short_orig_text"]
-    readonly_fields = ["id", "chunk_info_id", "source_id", 'orig_source_id', 'original_text', 'modified_text', 'original_source']
-    list_filter = ['embed_type_shortname', 'embed_source', 'mod_type_name']
+    list_display = ["id", "chunk_info_id", "chunk_info", "embed_source", "embed_type_shortname", 'mod_type_name', 'original_source', 'orig_source_id', "short_orig_text"]
+    readonly_fields = ["id", "chunk_info_id", "source_id", 'orig_source_id', 'chunk_text', 'original_text', 'modified_text', 'original_source']
+    list_filter = ['embed_type_shortname', 'total_chunks', 'embed_source', 'mod_type_name']
     search_fields = ['id', 'chunk_info_id', 'source_id', 'orig_source_id']
+
+    def chunk_text(self, obj):
+        if obj.embed_source == 'document':
+            if obj.total_chunks == 1 or obj.chunk_number == 9999:
+                chunk_text = ModifiedSection.objects.get(pk=obj.source_id).modified_text
+            else:
+                chunk_text = ModifiedSectionChunk.objects.get(chunk_info=obj.chunk_info_id, chunk_number=obj.chunkc_number).chunk_text
+
+        elif obj.embed_source == 'claim':
+            if obj.total_chunks == 1 or obj.chunk_number == 9999:
+                chunk_text = ModifiedClaim.objects.get(pk=obj.source_id).modified_text
+            else:
+                chunk_text = ModifiedClaimChunk.objects.get(chunk_info=obj.chunk_info_id, chunk_number=obj.chunk_number).chunk_text
+
+        else:
+            chunk_text = "<Not Available>"
+        return chunk_text
 
     def modified_text(self, obj):
         if obj.embed_source == 'document':
@@ -142,6 +163,8 @@ class EmbeddingAdmin(admin.ModelAdmin):
 
         return orig_source
 
+    def chunk_info(self, obj):
+        return f"{obj.chunk_number}/{obj.total_chunks}"
     original_text.short_description = 'Source'
 
 
@@ -163,3 +186,4 @@ admin.site.register(ModifiedSection, ModifiedSectionAdmin)
 admin.site.register(ClaimRelatedSection, ClaimRelatedSectionAdmin)
 admin.site.register(ModifiedSectionChunk, ModifiedSectionChunkAdmin)
 admin.site.register(ModifiedClaim, ModifiedClaimAdmin)
+admin.site.register(ModifiedClaimChunk, ModifiedClaimChunkAdmin)

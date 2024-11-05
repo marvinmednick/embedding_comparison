@@ -146,7 +146,7 @@ class ModifiedClaim(models.Model):
     modified_text = models.TextField()
 
     def __str__(self):
-        return f"{self.item.claim_id}"
+        return f"{self.id}"
 
 
 class ClaimChunkInfo(models.Model):

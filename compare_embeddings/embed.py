@@ -4,12 +4,12 @@ import argparse
 import django
 import numpy as np
 import logging
+from tqdm import tqdm
 from django.db.models import  Q
 
-from tqdm import tqdm
+from log_setup import setup_logging, get_logger, switch_to_handler, update_log_levels
 from utils import create_size_buckets, increment_bucket, comma_separated_list
 
-from log_setup import setup_logging, get_logger, switch_to_handler
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
 django.setup()
@@ -27,7 +27,7 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-def chunk_doc(embedder, doctype, modtype, maxrec=None, item_list=None, token_check=False):
+def chunk_doc(embedder, doctype, modtype, item_range=None, maxrec=None, item_list=None, token_check=False):
 
     doctype_config = {
         'doc': {
@@ -63,20 +63,33 @@ def chunk_doc(embedder, doctype, modtype, maxrec=None, item_list=None, token_che
 
     items = config['textObject'].objects.filter(mod_items_Q)
 
-    if maxrec is not None:
+    if item_range is not None:
+
+        start, stop = item_range
+        if maxrec is not None and (stop - start) > maxrec:
+            stop = start + maxrec
+            print(f"Shortening range to {maxrec} records:  {start}-{stop}")
+        items = items[start:stop]
+
+    elif maxrec is not None:
         items = items[0:maxrec]
 
     num_items = items.count()
     logger.debug("Processing %d %ss", num_items, config['status_desc'])
+    logger.trace("Tracing")
     with tqdm(total=num_items, desc=f"Processing {config['status_desc']}", unit=config['status_unit']) as pbar:
         for index, item in enumerate(items):
 
             # Delete Embeddings that are for modified_text entry and embedding type (?)
-            existing_embeddings = model.objects.filter(source_id=item.id, embed_source='document')
+            existing_embeddings = model.objects.filter(source_id=item.id, embed_source=config['embed_source'])
+            existing_embedding_count = existing_embeddings.count()
+            logger.debug("Deleting %d existing embedding records", existing_embedding_count)
             existing_embeddings.delete()
 
             # Delete ModifiedSectionChunk records for this modified section
             existing_chunks = config['chunkObject'].objects.filter(modified_item__id=item.id)
+            existing_chunk_count = existing_chunks.count()
+            logger.debug("Deleting %d existing chunk records", existing_chunk_count)
             existing_chunks.delete()
 
             chunked_text, total_chunks = embedder.chunk(item.modified_text)
@@ -93,7 +106,7 @@ def chunk_doc(embedder, doctype, modtype, maxrec=None, item_list=None, token_che
             chunk_embed_list = []
             embed_record = {
                 'embed_source': config['embed_source'],
-                'embed_id': chunkInfoRef.id,
+                'chunk_info_id': chunkInfoRef.id,
                 'source_id': chunkInfoRef.source.id,
                 'orig_source_id': chunkInfoRef.source.item.id,
                 'embed_type_name': embedding_type.name,
@@ -252,15 +265,18 @@ def main():
     parser.add_argument('content', choices=['claims', 'doc', 'olddoc'], help='The name of the file to load.')
     parser.add_argument('embedtype', choices=embed_types, help='The type of embedding to use.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
+    parser.add_argument('--startrec', type=int, default=0, help='starting record to process on loading, default is None (start at 0)')
+    parser.add_argument('-r', '--range', nargs=2, type=int, metavar=('START', 'STOP'), help='Start and stop indices (inclusive)')
     parser.add_argument('--maxrec', type=int, default=None, help='maximum records to process on loading, default is None (use all)')
     parser.add_argument('--tokencheck', '-tc', action='store_true', help='Perform a token count check only')
     parser.add_argument('--model', type=str, help='Top Level Topic Model to use')
     parser.add_argument('--list_topic_models', action='store_true', help='Top Level Topic Model to use')
-    parser.add_argument('--sections', type=comma_separated_list, help="List of comma-separated section numbers")
+    parser.add_argument('--items', type=comma_separated_list, help="List of comma-separated modified (claim/section) numbers")
     parser.add_argument('--log-level', default=os.environ.get('LOG_LEVEL', 'INFO'),
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        choices=['TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set the logging level')
-    parser.add_argument('--log-output', choices=['file','console'], help='Where to send log output to (default is file)')
+    parser.add_argument('--log-output', choices=['file', 'console'], help='Where to send log output to (default is file)')
+    parser.add_argument('--list-loggers', action='store_true', help="Display a list of all loggers")
 
     # Parse the arguments
     try:
@@ -272,19 +288,26 @@ def main():
 
     if args.list_topic_models:
         display_models()
+        return
 
-    section_list = None
-    if args.sections:
-        section_list = args.sections
+    if args.list_loggers:
+        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+        for lg in loggers:
+            print(lg)
+
+    item_list = None
+    if args.items:
+        item_list = args.items
 
     if args.log_output:
         switch_to_handler(args.log_output)
 
     log_level = args.log_level.upper()
     if logger:
-        logger.setLevel(log_level)
+        update_log_levels(log_level)
 
     logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)  # No warning on sample size
 
     if args.embedtype == 'sbert':
         embedder = SbertPatentEmbedding()
@@ -311,9 +334,9 @@ def main():
 
     if args.content == 'claims':
         # embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
-        chunk_doc(embedder, 'claim', args.modtype, args.maxrec, section_list, args.tokencheck)
+        chunk_doc(embedder, 'claim', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
     elif args.content == 'doc':
-        chunk_doc(embedder, 'doc', args.modtype, args.maxrec, section_list, args.tokencheck)
+        chunk_doc(embedder, 'doc', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
     elif args.content == 'olddoc':
         embed_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
 
