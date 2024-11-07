@@ -3,7 +3,7 @@ import logging
 import tiktoken
 
 from .models import Question, Choice
-from .models import Document, Section
+from .models import Document, Section, Tag
 from .models import Patent, PatentClaim, ModifiedClaim, ClaimElement, ClaimRelatedSection, ModifiedClaimChunk
 from .models import Embedding, ModificationType, EmbeddingType, Embedding768, Embedding32, Embedding1536
 from .models import SectionChunkInfo, ModifiedSection, ClaimChunkInfo, ModifiedSectionChunk
@@ -16,6 +16,7 @@ admin.site.register(Choice)
 admin.site.register(Embedding)
 admin.site.register(ModificationType)
 admin.site.register(Patent)
+admin.site.register(Tag)
 
 
 class DocumentAdmin(admin.ModelAdmin):
@@ -110,8 +111,8 @@ class EmbeddingTypeAdmin(admin.ModelAdmin):
 class EmbeddingAdmin(admin.ModelAdmin):
     list_display = ["id", "chunk_info_id", "chunk_info", "embed_source", "embed_type_shortname", 'mod_type_name', 'original_source', 'orig_source_id', "short_orig_text"]
     readonly_fields = ["id", "chunk_info_id", "source_id", 'orig_source_id', 'chunk_text', 'original_text', 'modified_text', 'original_source']
-    list_filter = ['embed_type_shortname', 'total_chunks', 'embed_source', 'mod_type_name']
-    search_fields = ['id', 'chunk_info_id', 'source_id', 'orig_source_id']
+    list_filter = ['embed_type_shortname', 'total_chunks', 'embed_source', 'mod_type_name', 'tags']
+    search_fields = ['id', 'chunk_info_id', 'source_id', 'orig_source_id', 'tags__name']
 
     def chunk_text(self, obj):
         if obj.embed_source == 'document':

@@ -25,6 +25,13 @@ class Choice(models.Model):
         return self.choice_text
 
 
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Embedding(models.Model):
     text = models.TextField(help_text="Text to be embedded")
     embedding = VectorField(
@@ -172,6 +179,7 @@ class EmbeddingBaseModel(models.Model):
     embed_type_shortname = models.CharField(max_length=20, null=True)
     chunk_number = models.IntegerField(default=1)
     total_chunks = models.IntegerField(default=1)
+    tags = models.ManyToManyField(Tag, related_name='%(class)s')
 
     class Meta:
         abstract = True

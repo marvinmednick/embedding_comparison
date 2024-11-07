@@ -11,7 +11,7 @@ from argparse import ArgumentParser, RawTextHelpFormatter
 from pgvector.django.functions import CosineDistance, FloatField
 from django.db.models import F, Value, CharField, BooleanField, Q, Subquery, OuterRef, When, Case
 import ndcg
-from utils import comma_separated_list
+from utils import comma_separated_list, get_embed_model
 
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'compare_embeddings.settings')
@@ -19,7 +19,6 @@ django.setup()
 
 from polls.models import Section, PatentClaim, ClaimRelatedSection   # noqa: E402
 from polls.models import ModificationType, EmbeddingType    # noqa: E402
-from polls.models import Embedding768, Embedding32, Embedding1536   # noqa: E402
 
 
 # Function to print all fields and their values for a given instance
@@ -62,50 +61,47 @@ def hellinger_distance(p, q):
 
 class ClaimComparison():
 
-    def __init__(self, modtype, embedding_type, section_list=None, maxrec=10, print_detail=False, related_claims=False):
+    def __init__(self, modtype, embedding_type, section_list=None, maxrec=10, print_detail=False, related_claims=False, use_average=False, use_best=False):
         self.section_list = section_list
+        self.use_average = use_average
         self.maxrec = maxrec
         self.mod_type = ModificationType.objects.get(name=modtype).name
         self.embed_type = EmbeddingType.objects.get(short_name=embedding_type)
         self.print_detail = print_detail
         self.related_claims_only = related_claims
+        self.use_best = use_best
 
     def compare_claim(self, claim_id):
 
         patent_claim = PatentClaim.objects.get(claim_id=claim_id)
 
-        if self.embed_type.size == 768:
-            embedding_model = Embedding768
+        if (embedding_model := get_embed_model(self.embed_type.size)) is None:
+            raise ValueError(f"Invalid embedding size: {self.embed_type.size}")
 
-        elif self.embed_type.size == 32:
-            embedding_model = Embedding32
-        elif self.embed_type.size == 1536:
-            embedding_model = Embedding1536
-        else:
-            raise ValueError("Invalid embedding size: {embed_type.size}")
+        claim_Q = (
+                Q(orig_source_id=patent_claim.id) &
+                Q(embed_source='claim') &
+                Q(mod_type_name=self.mod_type) &
+                Q(embed_type_name=self.embed_type.name)
+            )
 
-        obj = embedding_model.objects.get(orig_source_id=patent_claim.id,
-                                          embed_source='claim',
-                                          mod_type_name=self.mod_type,
-                                          embed_type_name=self.embed_type.name)
+        if self.use_average:
+            claim_Q &= Q(tags__name='average')
 
-        # print(obj.mod_type_name, obj.embed_type_name)
+        obj = embedding_model.objects.get(claim_Q)
+
         claim_embedding_vector = obj.embedding_vector
 
-        # print(f"Vector is {embedding.embedding_vector[0:20]} Vector size {len(embedding.embedding_vector)}")
-
         embedding_Q = Q(embed_source='document') & Q(mod_type_name=self.mod_type) & Q(embed_type_name=self.embed_type.name)
+
+        if self.use_average:
+            embedding_Q &= Q(tags__name='average')
 
         if self.section_list:
             orig_source_id_list = Section.objects.filter(section_id__in=self.section_list).values_list('id', flat=True)
             embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
 
         document_embeddings = embedding_model.objects.filter(embedding_Q)
-
-        # print(f"Number of document embeddings {document_embeddings.count()}")
-
-        # for document in document_embeddings:
-        #     print(f"Document ID: {document.id}, {document.embed_source} Embed_id: {document.embed_id} Source id: {document.source_id} Orig {document.orig_source_id}")
 
         all_related_sections = list(ClaimRelatedSection.objects.filter(claim__claim_id=claim_id).values_list('related_sections', flat=True).first() or [])
 
@@ -137,6 +133,11 @@ class ClaimComparison():
             obj.distance = dist
 
         result = sorted(list(annotated_queryset.values()), key=lambda x: x['cosine_distance'])
+
+        # if the use best flag is set, take only the top result from multiple chunks and rebuild the list
+        if self.use_best:
+            already_found = set()
+            result = [item for item in result if item['section_id'] not in already_found and not already_found.add(item['section_id'])]
 
         relevance_list = [1 if d['known_related_section'] else 0 for d in result if 'known_related_section' in d]
 
@@ -259,6 +260,8 @@ def main():
     parser.add_argument('--sections', '-sec', type=str, help="Filename of json file with a list of sections to check")
     parser.add_argument('--docsecs', type=comma_separated_list, help="List of comma-separated section numbers")
     parser.add_argument('--detail', action='store_true', help='Print details of claims comparisons')
+    parser.add_argument('--average', action='store_true', help='Only compare embeddings which are the average of the chunks avaiable')
+    parser.add_argument('--use-best', action='store_true', help='For sections that have multiple chunks, use only the best distance')
 
     # parser.add_argument('--test', action='store_true', help='Flag to indicate test queries should be run')
     # parser.add_argument('--results', type=int, default=5, help='Number of sections to return (default 5)')jjjkk
@@ -281,7 +284,10 @@ def main():
                               maxrec=args.maxrec,
                               modtype=args.modtype,
                               embedding_type=args.embed_type,
-                              print_detail=args.detail)
+                              print_detail=args.detail,
+                              use_average=args.average,
+                              use_best=args.use_best,
+                              )
 
     if args.claim:
         _ = compare.compare_claim(args.claim)

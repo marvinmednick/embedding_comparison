@@ -4,6 +4,7 @@ from nltk.tokenize import sent_tokenize
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Tuple
 from log_setup import setup_logging, get_logger
+from django.apps import apps
 
 
 SEARCH_AREA = 0.2
@@ -27,6 +28,14 @@ SPLITTERS = [
 setup_logging()
 
 logger = get_logger(__name__)
+
+
+def get_embed_model(size):
+    model_name = f"Embedding{size}"
+    try:
+        return apps.get_model('polls', model_name)
+    except LookupError:
+        return None
 
 
 def find_best_split_point(astr, reverse_splitters=False):
