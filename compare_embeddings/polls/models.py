@@ -52,7 +52,7 @@ class ModificationType(models.Model):
 
 class EmbeddingType(models.Model):
     name = models.CharField(max_length=200)
-    short_name = models.CharField(max_length=20, null=True)
+    short_name = models.CharField(max_length=60, null=True)
     description = models.TextField()
     size = models.IntegerField()
     windows_size = models.IntegerField(default=0)
@@ -174,9 +174,10 @@ class EmbeddingBaseModel(models.Model):
     chunk_info_id = models.BigIntegerField(help_text="ID in ChunkInfo table (Claim/Section ChunkInfo) that indicates the modified text and embedding type.")
     source_id = models.BigIntegerField(help_text="ID to the document/claim xxForEmbedding) record that text to be used for embeddning (after modificaitons, before chunking)")
     orig_source_id = models.BigIntegerField(help_text="ID to the (doc/claim) record that has the original source text in the documents (before any modifications)")
+    embed_type = models.ForeignKey(EmbeddingType, on_delete=models.CASCADE, null=True)
     embed_type_name = models.CharField(max_length=200)
     mod_type_name = models.CharField(max_length=200)
-    embed_type_shortname = models.CharField(max_length=20, null=True)
+    embed_type_shortname = models.CharField(max_length=60, null=True)
     chunk_number = models.IntegerField(default=1)
     total_chunks = models.IntegerField(default=1)
     tags = models.ManyToManyField(Tag, related_name='%(class)s')

@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 from argparse import ArgumentParser, RawTextHelpFormatter
 from pgvector.django.functions import CosineDistance, FloatField
-from django.db.models import F, Value, CharField, BooleanField, Q, Subquery, OuterRef, When, Case
+from django.db.models import F, Value, CharField, BooleanField, Q, Subquery, OuterRef, When, QuerySet, Case
 import ndcg
 from utils import comma_separated_list, get_embed_model
 
@@ -59,10 +59,136 @@ def hellinger_distance(p, q):
     return np.sqrt(np.sum((np.sqrt(p) - np.sqrt(q))**2) / 2)
 
 
+class SectionComparison():
+    def __init__(self, modtype, embedding_type, item_list=None, maxrec=10, print_detail=False, related_claims=False, use_average=False, use_best=False):
+        self.item_list = item_list
+        self.use_average = use_average
+        self.maxrec = maxrec
+        self.mod_type = ModificationType.objects.get(name=modtype).name
+        self.embed_type = EmbeddingType.objects.get(short_name=embedding_type)
+        self.print_detail = print_detail
+        self.related_claims_only = related_claims
+        self.use_best = use_best
+
+    def compare_section(self, item_id):
+        reference = Section.objects.get(section_id=item_id)
+        reference_type = 'document'
+
+        if (embedding_model := get_embed_model(self.embed_type.size)) is None:
+            raise ValueError(f"Invalid embedding size: {self.embed_type.size}")
+
+        section_Q = (
+                Q(orig_source_id=reference.id) &
+                Q(embed_source=reference_type) &
+                Q(mod_type_name=self.mod_type) &
+                Q(embed_type_name=self.embed_type.name)
+            )
+
+        if self.use_average:
+            section_Q &= Q(tags__name='average')
+
+        # get all the chunks (maybe multiple) for the sectoin
+        refobj_list = embedding_model.objects.filter(section_Q)
+        print(f"Found {len(refobj_list)} for section {item_id}")
+
+        embedding_Q = Q(embed_source='claim') & Q(mod_type_name=self.mod_type) & Q(embed_type_name=self.embed_type.name)
+
+        if self.use_average:
+            embedding_Q &= Q(tags__name='average')
+
+        if self.item_list:
+            orig_source_id_list = PatentClaim.objects.filter(claim_id=self.item_list).values_list('id', flat=True)
+            embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
+
+        claim_embeddings = embedding_model.objects.filter(embedding_Q)
+
+        related_items = list(ClaimRelatedSection.objects.filter(related_sections__contains=[item_id]).values_list('claim__claim_id', flat=True))
+        print(f"Found {len(related_items)} claims")
+
+        # filter down related sections to only the ones we are looking at
+        if self.item_list:
+            related_items = [x for x in related_items if x in self.item_list]
+
+        found_ranking = dict.fromkeys(related_items, False)
+
+        related_rankings = []
+        # To get the actual claims:
+        # claims = PatentClaim.objects.filter(claimrelatedsection__in=related_items)
+
+        queryset_list = []
+        for obj in refobj_list:
+
+            section_embedding_vector = obj.embedding_vector
+
+            annotated_queryset = claim_embeddings.annotate(
+                cosine_distance=CosineDistance(F('embedding_vector'), section_embedding_vector),
+                distance=Value(0, FloatField()),
+                claim_id=Subquery(PatentClaim.objects.filter(id=OuterRef('orig_source_id')).values('claim_id')[:1]),
+                section_id=Value(item_id, output_field=CharField()),
+                known_related=Case(When(claim_id__in=related_items, then=Value(True)),
+                                   default=Value(False),
+                                   output_field=BooleanField())
+            )
+
+            print(f"Adding {annotated_queryset.count()} results")
+            queryset_list.append(annotated_queryset)
+
+        print("Done with collecting Results")
+        combined_queryset = QuerySet.union(*queryset_list).order_by('cosine_distance')
+
+        result = list(combined_queryset.values())
+
+        # if the use best flag is set, take only the top result from multiple chunks and rebuild the list
+        if self.use_best:
+            already_found = set()
+            result = [item for item in result if item['claim_id'] not in already_found and not already_found.add(item['claim_id'])]
+
+        relevance_list = [1 if d['known_related'] else 0 for d in result if 'known_related' in d]
+
+        if self.print_detail:
+            print(f"{'Rank':<7} {f'Embed {self.embed_type.size} ID':15} {'Claim ID':15} {'Cosine Distance':20} {'Distance':20} {'Related':5}")
+
+        for rank, document in enumerate(result[0:self.maxrec], 1):
+            chunk_info = f"{document['chunk_number']}/{document['total_chunks']}"
+            if document['known_related']:
+                ranking_rec = {
+                    'claim_id': document['claim_id'],
+                    'rank':  rank,
+                    'cosine_distance':  document['cosine_distance'],
+                    'id':  document['id'],
+                    'chunk_info':  chunk_info
+                }
+                related_rankings.append(ranking_rec)
+                found_ranking[document['claim_id']] = True
+
+            if self.print_detail:
+                print(f"{rank:7} {document['id']:<15} {document['claim_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related']} {chunk_info}")
+
+        if len(related_rankings) > 0:
+            print(f"Ranking for found related sections for {item_id}")
+            for r in related_rankings:
+                print(f"{r['claim_id']:<20} {r['rank']:<5} Cosine Dist. {r['cosine_distance']:<15.10} {r['id']} {r['chunk_info']}")
+
+            sections_not_found = []
+            for key, value in found_ranking.items():
+                if not value:
+                    sections_not_found.append(key)
+
+            if sections_not_found:
+                print(f"Not found: {', '.join(sections_not_found)}")
+
+        else:
+            print(f"No related claims defined for {item_id}  Closest item: {result[0].cosine_distance}")
+
+        print(f"NDCG {ndcg.calculate_ndcg_from_list(relevance_list)}")
+
+        return result
+
+
 class ClaimComparison():
 
-    def __init__(self, modtype, embedding_type, section_list=None, maxrec=10, print_detail=False, related_claims=False, use_average=False, use_best=False):
-        self.section_list = section_list
+    def __init__(self, modtype, embedding_type, item_list=None, maxrec=10, print_detail=False, related_claims=False, use_average=False, use_best=False):
+        self.item_list = item_list
         self.use_average = use_average
         self.maxrec = maxrec
         self.mod_type = ModificationType.objects.get(name=modtype).name
@@ -97,8 +223,8 @@ class ClaimComparison():
         if self.use_average:
             embedding_Q &= Q(tags__name='average')
 
-        if self.section_list:
-            orig_source_id_list = Section.objects.filter(section_id__in=self.section_list).values_list('id', flat=True)
+        if self.item_list:
+            orig_source_id_list = Section.objects.filter(section_id__in=self.item_list).values_list('id', flat=True)
             embedding_Q &= Q(orig_source_id__in=orig_source_id_list)
 
         document_embeddings = embedding_model.objects.filter(embedding_Q)
@@ -106,24 +232,19 @@ class ClaimComparison():
         all_related_sections = list(ClaimRelatedSection.objects.filter(claim__claim_id=claim_id).values_list('related_sections', flat=True).first() or [])
 
         # filter down related sections to only the ones we are looking at
-        related_sections = [x for x in all_related_sections if x in self.section_list]
+        related_sections = [x for x in all_related_sections if x in self.item_list]
 
-        empty_rec = {
-            'rank':  None,
-            'cosine_distance': None,
-            'distance':  None
-        }
-        found_ranking = dict.fromkeys(related_sections, False) 
-        related_section_rankings = []
+        found_ranking = dict.fromkeys(related_sections, False)
+        related_rankings = []
 
         annotated_queryset = document_embeddings.annotate(
             cosine_distance=CosineDistance(F('embedding_vector'), claim_embedding_vector),
             distance=Value(0, FloatField()),
             claim_id=Value(claim_id, output_field=CharField()),
             section_id=Subquery(Section.objects.filter(id=OuterRef('orig_source_id')).values('section_id')[:1]),
-            known_related_section=Case(When(section_id__in=related_sections, then=Value(True)),
-                                       default=Value(False),
-                                       output_field=BooleanField())
+            known_related=Case(When(section_id__in=related_sections, then=Value(True)),
+                               default=Value(False),
+                               output_field=BooleanField())
         )
 
         # Annotate your queryset with the custom function result
@@ -139,14 +260,14 @@ class ClaimComparison():
             already_found = set()
             result = [item for item in result if item['section_id'] not in already_found and not already_found.add(item['section_id'])]
 
-        relevance_list = [1 if d['known_related_section'] else 0 for d in result if 'known_related_section' in d]
+        relevance_list = [1 if d['known_related'] else 0 for d in result if 'known_related' in d]
 
         if self.print_detail:
             print(f"{'Rank':<7} {f'Embed {self.embed_type.size} ID':15} {'Section ID':15} {'Cosine Distance':20} {'Distance':20} {'Related':5}")
 
         for rank, document in enumerate(result[0:self.maxrec], 1):
             chunk_info = f"{document['chunk_number']}/{document['total_chunks']}"
-            if document['known_related_section']:
+            if document['known_related']:
                 ranking_rec = {
                     'section_id': document['section_id'],
                     'rank':  rank,
@@ -155,14 +276,14 @@ class ClaimComparison():
                     'id':  document['id'],
                     'chunk_info':  chunk_info
                 }
-                related_section_rankings.append(ranking_rec)
+                related_rankings.append(ranking_rec)
                 found_ranking[document['section_id']] = True
             if self.print_detail:
-                print(f"{rank:7} {document['id']:<15} {document['section_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related_section']} {chunk_info}")
+                print(f"{rank:7} {document['id']:<15} {document['section_id']:<15} {document['cosine_distance']:<20} {document['distance']:<20} {document['known_related']} {chunk_info}")
 
-        if len(related_section_rankings) > 0:
+        if len(related_rankings) > 0:
             print(f"Ranking for found related sections for {claim_id}")
-            for r in related_section_rankings:
+            for r in related_rankings:
                 print(f"{r['section_id']:<20} {r['rank']:<5} Cosine Dist. {r['cosine_distance']:<15.10} {r['id']} {r['chunk_info']}")
 
             sections_not_found = []
@@ -249,6 +370,7 @@ def main():
     parser = ArgumentParser(description="Process a collection and filename.", formatter_class=RawTextHelpFormatter)
     parser.add_argument('embed_type', choices=embed_types, help=embed_type_help_string)
     parser.add_argument('--claim', type=str, help='claim id of patent claim to find distances')
+    parser.add_argument('--section', type=str, help='claim id of patent claim to find distances')
     parser.add_argument('--modtype', default="Unmodified", choices=mod_types, help='Modification type to use')
     parser.add_argument('-r', '--range', nargs=2, type=int, metavar=('START', 'STOP'),
                         help='Specify start and stop claim indices')
@@ -257,7 +379,7 @@ def main():
     parser.add_argument('--maxrec', type=int, default=10, help='maximum records to display')
     parser.add_argument('--claim_k', '-ck', type=int, default=10, help='maximum records to display')
     parser.add_argument('--all_k', '-ak', type=int, default=100, help='maximum records to display')
-    parser.add_argument('--sections', '-sec', type=str, help="Filename of json file with a list of sections to check")
+    parser.add_argument('--section_file', '-sf', type=str, help="Filename of json file with a list of sections to check")
     parser.add_argument('--docsecs', type=comma_separated_list, help="List of comma-separated section numbers")
     parser.add_argument('--detail', action='store_true', help='Print details of claims comparisons')
     parser.add_argument('--average', action='store_true', help='Only compare embeddings which are the average of the chunks avaiable')
@@ -276,11 +398,12 @@ def main():
     if args.docsecs:
         section_list = args.docsecs
 
-    elif args.sections:
-        with open(args.sections, 'r') as f:
+    elif args.section_file:
+        with open(args.section_file, 'r') as f:
             section_list = json.load(f)
 
-    compare = ClaimComparison(section_list=section_list,
+    # generate the compare class object
+    compare = ClaimComparison(item_list=section_list,
                               maxrec=args.maxrec,
                               modtype=args.modtype,
                               embedding_type=args.embed_type,
@@ -289,8 +412,20 @@ def main():
                               use_best=args.use_best,
                               )
 
+    compare_sec = SectionComparison(item_list=section_list,
+                                    maxrec=args.maxrec,
+                                    modtype=args.modtype,
+                                    embedding_type=args.embed_type,
+                                    print_detail=args.detail,
+                                    use_average=args.average,
+                                    use_best=args.use_best,
+                                    )
+
     if args.claim:
         _ = compare.compare_claim(args.claim)
+
+    if args.section:
+        _ = compare_sec.compare_section(args.section)
 
     if args.range:
         _ = compare.compare_range(start=args.range[0], stop=args.range[1], claim_top_k=args.claim_k, overall_top_k=args.all_k)

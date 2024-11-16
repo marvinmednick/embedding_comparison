@@ -109,6 +109,7 @@ def chunk_doc(embedder, doctype, modtype, item_range=None, maxrec=None, item_lis
                 'chunk_info_id': chunkInfoRef.id,
                 'source_id': chunkInfoRef.source.id,
                 'orig_source_id': chunkInfoRef.source.item.id,
+                'embed_type': embedding_type,
                 'embed_type_name': embedding_type.name,
                 'mod_type_name': chunkInfoRef.source.modification_type.name,
                 'embed_type_shortname': embedding_type.short_name,
@@ -143,9 +144,13 @@ def chunk_doc(embedder, doctype, modtype, item_range=None, maxrec=None, item_lis
 
                 chunk_embed_list.append(chunk_embedding)
 
-                model.objects.create(**embed_record)
+                try:
+                    model.objects.create(**embed_record)
+                except Exception as e:
+                    print(f"Exception {e} while creating embed record {embed_record}")
+                    raise
 
-            # if there is more than one chunk for the text, 
+            # if there is more than one chunk for the text,
             # also create a mean (otherwise only one chunk, there is no need for the mean)
             if total_chunks > 1:
                 mean_embedding = np.mean([chunk_embedding for chunk_embedding in chunk_embed_list], axis=0)
@@ -204,6 +209,7 @@ def embed_doc(embedder, modtype, maxrec=None, token_check=False):
                 defaults = {
                     'source_id': sec_embed_ref.source.id,
                     'orig_source_id': sec_embed_ref.source.item.id,
+                    'embed_type': embedding_type,
                     'embed_type_name': embedding_type.name,
                     'mod_type_name': sec_embed_ref.source.modification_type.name,
                     'embed_type_shortname': embedding_type.short_name,
@@ -245,6 +251,7 @@ def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
             defaults = {
                 'source_id': claim_embed_ref.source.id,
                 'orig_source_id': claim_embed_ref.source.item.id,
+                'embed_type': embedding_type,
                 'embed_type_name': embedding_type.name,
                 'mod_type_name': claim_embed_ref.source.modification_type.name,
                 'embed_type_shortname': 'psbert',
