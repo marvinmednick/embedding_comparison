@@ -178,7 +178,7 @@ class SectionComparison():
                 print(f"Not found: {', '.join(sections_not_found)}")
 
         else:
-            print(f"No related claims defined for {item_id}  Closest item: {result[0].cosine_distance}")
+            print(f"No related claims defined for {item_id}  Closest item: {result[0]['cosine_distance']}")
 
         print(f"NDCG {ndcg.calculate_ndcg_from_list(relevance_list)}")
 

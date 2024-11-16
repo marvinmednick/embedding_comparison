@@ -27,7 +27,7 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-def chunk_doc(embedder, doctype, modtype, item_range=None, maxrec=None, item_list=None, token_check=False):
+def embed_content(embedder, doctype, modtype, item_range=None, maxrec=None, item_list=None, token_check=False):
 
     doctype_config = {
         'doc': {
@@ -162,106 +162,6 @@ def chunk_doc(embedder, doctype, modtype, item_range=None, maxrec=None, item_lis
             pbar.update(1)
 
 
-def embed_doc(embedder, modtype, maxrec=None, token_check=False):
-
-    # ensure_specific_nltk_resources()
-
-    lookup_params, defaults, model = embedder.get_embed_params()
-
-    embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
-
-    modification_type = ModificationType.objects.get(name=modtype)
-    if maxrec is not None:
-        sections = ModifiedSection.objects.filter(modification_type=modification_type)[0:maxrec]
-    else:
-        sections = ModifiedSection.objects.filter(modification_type=modification_type)
-
-    token_lengths = []
-
-    # Create buckes for counting the size distribution of the token lengths
-    specified_sizes = [16, 256, 512, 1024, 2048, 4096, 8192, 16384]
-    size_buckets = create_size_buckets(specified_sizes)
-
-    num_sections = sections.count()
-    with tqdm(total=num_sections, desc="Processing Sections", unit="section") as pbar:
-        for index, sec in enumerate(sections):
-            tokens = embedder.tokenize(sec.modified_text)
-            token_length = len(tokens['input_ids'])
-
-            tl_rec = {
-                'id': sec.id,
-                'section_id': sec.item.section_id,
-                'token_length': token_length,
-                'text_length': sec.modified_text
-            }
-            token_lengths.append(tl_rec)
-
-            increment_bucket(size_buckets, token_length)
-
-            if not token_check:
-                sec_embed_ref, _created = SectionChunkInfo.objects.update_or_create(source=sec, embed_type=embedding_type)
-
-                text_embedding = embedder.generate_embedding(sec.modified_text)
-                params = {
-                    'embed_source': 'document',
-                    'embed_id': sec_embed_ref.id,
-                }
-                defaults = {
-                    'source_id': sec_embed_ref.source.id,
-                    'orig_source_id': sec_embed_ref.source.item.id,
-                    'embed_type': embedding_type,
-                    'embed_type_name': embedding_type.name,
-                    'mod_type_name': sec_embed_ref.source.modification_type.name,
-                    'embed_type_shortname': embedding_type.short_name,
-                    'embedding_vector': text_embedding,
-                }
-                model.objects.update_or_create(defaults=defaults, **params)
-            pbar.update(1)
-
-    for ln in token_lengths:
-        print(f"Section {ln['section_id']} ({ln['id']})   len: {ln['token_length']}")
-
-    print("Token sizes by range:")
-    for key in size_buckets['size_list']:
-        print(f"{key}: {size_buckets[key]}")
-
-    print(f"max: {size_buckets['max']}")
-
-
-def embed_patent_claims(embedder, modtype, maxrec=None, token_check=False):
-
-    lookup_params, defaults, model = embedder.get_embed_params()
-    embedding_type, _created = EmbeddingType.objects.get_or_create(**lookup_params, defaults=defaults)
-
-    modification_type = ModificationType.objects.get(name=modtype)
-    if maxrec is not None:
-        claims = ModifiedClaim.objects.filter(modification_type=modification_type)[0:maxrec]
-    else:
-        claims = ModifiedClaim.objects.filter(modification_type=modification_type)
-
-    num_claims = claims.count()
-    with tqdm(total=num_claims, desc="Processing Claims", unit="claim") as pbar:
-        for index, claim in enumerate(claims):
-            claim_embed_ref, _created = ClaimChunkInfo.objects.update_or_create(source=claim, embed_type=embedding_type)
-            text_embedding = embedder.generate_embedding(claim.modified_text)
-            params = {
-                'embed_source': 'claim',
-                'embed_id': claim_embed_ref.id,
-            }
-            defaults = {
-                'source_id': claim_embed_ref.source.id,
-                'orig_source_id': claim_embed_ref.source.item.id,
-                'embed_type': embedding_type,
-                'embed_type_name': embedding_type.name,
-                'mod_type_name': claim_embed_ref.source.modification_type.name,
-                'embed_type_shortname': 'psbert',
-                'embedding_vector': text_embedding,
-            }
-            model.objects.update_or_create(defaults=defaults, **params)
-            pbar.update(1)
-            logger.debug("Embed claim #:%d  %s", defaults['source_id'], str(text_embedding[0:6]))
-
-
 def main():
 
     mod_types = ModificationType.objects.values_list('name', flat=True)
@@ -269,7 +169,7 @@ def main():
 
     # Create the argument parser
     parser = argparse.ArgumentParser(description="Process a collection and filename.")
-    parser.add_argument('content', choices=['claims', 'doc', 'olddoc'], help='The name of the file to load.')
+    parser.add_argument('content', choices=['claims', 'doc'], help='The name of the file to load.')
     parser.add_argument('embedtype', choices=embed_types, help='The type of embedding to use.')
     parser.add_argument('modtype', choices=mod_types, help='The text modificaiton to apply.')
     parser.add_argument('--startrec', type=int, default=0, help='starting record to process on loading, default is None (start at 0)')
@@ -341,11 +241,9 @@ def main():
 
     if args.content == 'claims':
         # embed_patent_claims(embedder, args.modtype, args.maxrec, args.tokencheck)
-        chunk_doc(embedder, 'claim', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
+        embed_content(embedder, 'claim', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
     elif args.content == 'doc':
-        chunk_doc(embedder, 'doc', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
-    elif args.content == 'olddoc':
-        embed_doc(embedder, args.modtype, args.maxrec, args.tokencheck)
+        embed_content(embedder, 'doc', args.modtype, args.range, args.maxrec, item_list, args.tokencheck)
 
 
 if __name__ == "__main__":
